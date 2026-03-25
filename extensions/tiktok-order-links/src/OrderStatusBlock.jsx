@@ -2,8 +2,7 @@ import '@shopify/ui-extensions/preact';
 import {render} from 'preact';
 import {useEffect, useState} from 'preact/hooks';
 
-const APP_URL = 'https://sprint-spring-oaks-modeling.trycloudflare.com';
-const SHOP = 'teststore-mo-2.myshopify.com';
+const APP_URL = 'https://shopifykol-production.up.railway.app';
 
 function isValidTikTokOrShopeeUrl(value) {
   try {
@@ -24,6 +23,17 @@ function isValidTikTokOrShopeeUrl(value) {
   }
 }
 
+function getShopDomain() {
+  const shopValue = globalThis.shopify?.shop?.value;
+
+  return (
+    shopValue?.myshopifyDomain ||
+    shopValue?.storeDomain ||
+    shopValue?.domain ||
+    ''
+  );
+}
+
 export default async () => {
   render(<Extension />, document.body);
 };
@@ -40,6 +50,8 @@ function Extension() {
   const orderId = order?.id || '';
   const orderName = order?.name || '';
 
+  const shopDomain = getShopDomain();
+
   const customerEmail =
     order?.customer?.email ||
     customer?.emailAddress ||
@@ -48,12 +60,12 @@ function Extension() {
 
   useEffect(() => {
     async function loadLinks() {
-      if (!orderId) return;
+      if (!orderId || !shopDomain) return;
 
       try {
         const response = await fetch(
           `${APP_URL}/api/tiktok-links?shop=${encodeURIComponent(
-            SHOP,
+            shopDomain,
           )}&orderId=${encodeURIComponent(orderId)}`,
           {
             method: 'GET',
@@ -77,7 +89,7 @@ function Extension() {
     }
 
     loadLinks();
-  }, [orderId]);
+  }, [orderId, shopDomain]);
 
   async function handleSave() {
     setStatusText('');
@@ -101,6 +113,11 @@ function Extension() {
       return;
     }
 
+    if (!shopDomain) {
+      setStatusText('ไม่พบข้อมูลร้านค้า กรุณารีเฟรชหน้าแล้วลองใหม่อีกครั้ง');
+      return;
+    }
+
     try {
       setSaving(true);
       setStatusText('กำลังบันทึก...');
@@ -112,7 +129,7 @@ function Extension() {
           Accept: 'application/json',
         },
         body: JSON.stringify({
-          shop: SHOP,
+          shop: shopDomain,
           orderId,
           orderName,
           customerEmail,
