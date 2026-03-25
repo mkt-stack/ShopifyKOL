@@ -1,11 +1,158 @@
 import db from "../db.server";
 
+async function getOfflineAccessTokenForShop(shop) {
+  const session = await db.session.findFirst({
+    where: {
+      shop,
+      isOnline: false,
+    },
+  });
+
+  if (!session?.accessToken) {
+    throw new Error(`No offline access token found for shop: ${shop}`);
+  }
+
+  return session.accessToken;
+}
+
+function toOrderGid(orderId) {
+  if (typeof orderId === "string" && orderId.startsWith("gid://")) {
+    return orderId;
+  }
+
+  return `gid://shopify/Order/${orderId}`;
+}
+
+async function appendOrderLinkSubmissionMetafield({
+  shop,
+  accessToken,
+  orderId,
+  submission,
+}) {
+  const endpoint = `https://${shop}/admin/api/2026-04/graphql.json`;
+  const orderGid = toOrderGid(orderId);
+
+  const getOrderQuery = `
+    query GetOrderLinkSubmission($id: ID!) {
+      order(id: $id) {
+        id
+        metafield(namespace: "custom", key: "link_submission") {
+          id
+          type
+          value
+          compareDigest
+        }
+      }
+    }
+  `;
+
+  const getResp = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": accessToken,
+    },
+    body: JSON.stringify({
+      query: getOrderQuery,
+      variables: { id: orderGid },
+    }),
+  });
+
+  const getJson = await getResp.json();
+
+  if (getJson.errors?.length) {
+    throw new Error(`Order query failed: ${JSON.stringify(getJson.errors)}`);
+  }
+
+  const order = getJson?.data?.order;
+
+  if (!order) {
+    throw new Error(`Order not found for ${orderGid}`);
+  }
+
+  let currentSubmissions = [];
+  const existingMetafield = order.metafield;
+
+  if (existingMetafield?.value) {
+    try {
+      const parsed = JSON.parse(existingMetafield.value);
+      currentSubmissions = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      currentSubmissions = [];
+    }
+  }
+
+  currentSubmissions.push(submission);
+
+  const setMetafieldMutation = `
+    mutation SetOrderLinkSubmission($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields {
+          id
+          namespace
+          key
+          type
+          value
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const metafieldInput = {
+    ownerId: order.id,
+    namespace: "custom",
+    key: "link_submission",
+    type: "json",
+    value: JSON.stringify(currentSubmissions),
+  };
+
+  if (existingMetafield?.compareDigest) {
+    metafieldInput.compareDigest = existingMetafield.compareDigest;
+  }
+
+  const setResp = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": accessToken,
+    },
+    body: JSON.stringify({
+      query: setMetafieldMutation,
+      variables: {
+        metafields: [metafieldInput],
+      },
+    }),
+  });
+
+  const setJson = await setResp.json();
+
+  if (setJson.errors?.length) {
+    throw new Error(`metafieldsSet failed: ${JSON.stringify(setJson.errors)}`);
+  }
+
+  const userErrors = setJson?.data?.metafieldsSet?.userErrors || [];
+  if (userErrors.length > 0) {
+    throw new Error(
+      `metafieldsSet userErrors: ${JSON.stringify(userErrors)}`,
+    );
+  }
+
+  return setJson?.data?.metafieldsSet?.metafields?.[0] ?? null;
+}
+
 function jsonResponse(data, init = {}) {
   const headers = new Headers(init.headers || {});
   headers.set("Content-Type", "application/json");
   headers.set("Access-Control-Allow-Origin", "*");
   headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Content-Type, Accept");
+  headers.set(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Accept, Authorization",
+  );
 
   return new Response(JSON.stringify(data), {
     ...init,
@@ -44,7 +191,8 @@ async function handleRequest(request) {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Accept",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Accept, Authorization",
       },
     });
   }
@@ -120,6 +268,25 @@ async function handleRequest(request) {
           url: cleanUrl,
         },
       });
+
+      try {
+        const accessToken = await getOfflineAccessTokenForShop(shop);
+
+        await appendOrderLinkSubmissionMetafield({
+          shop,
+          accessToken,
+          orderId,
+          submission: {
+            url: saved.url,
+            savedAt: saved.createdAt.toISOString(),
+            customerEmail,
+            orderId,
+            orderName,
+          },
+        });
+      } catch (metafieldError) {
+        console.error("Metafield update failed:", metafieldError);
+      }
 
       await emitTikTokUrlSaved({
         id: saved.id,
