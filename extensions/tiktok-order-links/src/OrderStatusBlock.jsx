@@ -24,14 +24,24 @@ function isValidTikTokOrShopeeUrl(value) {
 }
 
 function getShopDomain() {
-  const shopValue = globalThis.shopify?.shop?.value;
+  try {
+    const hostname = globalThis.location?.hostname || '';
 
-  return (
-    shopValue?.myshopifyDomain ||
-    shopValue?.storeDomain ||
-    shopValue?.domain ||
-    ''
-  );
+    // customer account domain like:
+    // shopify.com/123456/account/...
+    // or shop.myshopify.com/account/...
+    const search = globalThis.location?.search || '';
+
+    // If this runs on the real myshopify domain, use it directly
+    if (hostname.endsWith('.myshopify.com')) {
+      return hostname;
+    }
+
+    // Fallback: hardcode your current production store domain here
+    return 'gqsizekol.myshopify.com';
+  } catch {
+    return 'gqsizekol.myshopify.com';
+  }
 }
 
 export default async () => {
@@ -49,7 +59,6 @@ function Extension() {
 
   const orderId = order?.id || '';
   const orderName = order?.name || '';
-
   const shopDomain = getShopDomain();
 
   const customerEmail =
