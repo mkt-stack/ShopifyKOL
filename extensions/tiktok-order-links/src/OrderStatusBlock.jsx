@@ -3,6 +3,7 @@ import {render} from 'preact';
 import {useEffect, useState} from 'preact/hooks';
 
 const APP_URL = 'https://shopifykol-production.up.railway.app';
+const FALLBACK_SHOP = 'gqsizecrm.myshopify.com';
 
 function isValidTikTokOrShopeeUrl(value) {
   try {
@@ -25,22 +26,27 @@ function isValidTikTokOrShopeeUrl(value) {
 
 function getShopDomain() {
   try {
+    const shopValue = globalThis.shopify?.shop?.value;
+
+    const detected =
+      shopValue?.myshopifyDomain ||
+      shopValue?.domain ||
+      shopValue?.storeDomain ||
+      '';
+
+    if (detected && detected.endsWith('.myshopify.com')) {
+      return detected;
+    }
+
     const hostname = globalThis.location?.hostname || '';
 
-    // customer account domain like:
-    // shopify.com/123456/account/...
-    // or shop.myshopify.com/account/...
-    const search = globalThis.location?.search || '';
-
-    // If this runs on the real myshopify domain, use it directly
-    if (hostname.endsWith('.myshopify.com')) {
+    if (hostname && hostname.endsWith('.myshopify.com')) {
       return hostname;
     }
 
-    // Fallback: hardcode your current production store domain here
-    return 'gqsizekol.myshopify.com';
+    return FALLBACK_SHOP;
   } catch {
-    return 'gqsizekol.myshopify.com';
+    return FALLBACK_SHOP;
   }
 }
 
@@ -59,7 +65,7 @@ function Extension() {
 
   const orderId = order?.id || '';
   const orderName = order?.name || '';
-  const shopDomain = getShopDomain();
+  const shop = getShopDomain();
 
   const customerEmail =
     order?.customer?.email ||
@@ -69,12 +75,12 @@ function Extension() {
 
   useEffect(() => {
     async function loadLinks() {
-      if (!orderId || !shopDomain) return;
+      if (!orderId || !shop) return;
 
       try {
         const response = await fetch(
           `${APP_URL}/api/tiktok-links?shop=${encodeURIComponent(
-            shopDomain,
+            shop,
           )}&orderId=${encodeURIComponent(orderId)}`,
           {
             method: 'GET',
@@ -88,6 +94,7 @@ function Extension() {
 
         if (result?.ok) {
           setSavedLinks(result.links || []);
+          setStatusText('');
         } else {
           setStatusText(result?.error || 'ไม่สามารถโหลดลิงก์ที่บันทึกไว้ได้');
         }
@@ -98,7 +105,7 @@ function Extension() {
     }
 
     loadLinks();
-  }, [orderId, shopDomain]);
+  }, [orderId, shop]);
 
   async function handleSave() {
     setStatusText('');
@@ -122,7 +129,7 @@ function Extension() {
       return;
     }
 
-    if (!shopDomain) {
+    if (!shop) {
       setStatusText('ไม่พบข้อมูลร้านค้า กรุณารีเฟรชหน้าแล้วลองใหม่อีกครั้ง');
       return;
     }
@@ -138,7 +145,7 @@ function Extension() {
           Accept: 'application/json',
         },
         body: JSON.stringify({
-          shop: shopDomain,
+          shop,
           orderId,
           orderName,
           customerEmail,
@@ -151,7 +158,9 @@ function Extension() {
 
       if (!response.ok || !result?.ok) {
         setStatusText(
-          result?.error || result?.details || 'บันทึกลิงก์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+          result?.error ||
+            result?.details ||
+            'บันทึกลิงก์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
         );
         return;
       }
