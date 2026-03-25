@@ -1,0 +1,15 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "tiktok-order-links"
+handle = "tiktok-order-links"
+uid = "5a698d8c-a2f6-a541-8a67-c68bd03d9827bbbe838e"
+type = "ui_extension"
+
+[[extensions.targeting]]
+target = "customer-account.order-status.block.render"
+module = "./src/OrderStatusBlock.jsx"
+default_placement = "ORDER_SUMMARY1"
+
+[extensions.capabilities]
+network_access = true
