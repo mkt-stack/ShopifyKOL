@@ -1,5 +1,5 @@
 import db from "../db.server";
-import { shopify } from "../shopify.server";
+import shopify from "../shopify.server";
 
 async function getOfflineAccessTokenForShop(shop) {
   const offlineSessionId = shopify.api.session.getOfflineId(shop);
