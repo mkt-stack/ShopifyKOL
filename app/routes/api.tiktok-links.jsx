@@ -3,7 +3,6 @@ import { sessionStorage } from "../shopify.server";
 
 async function getOfflineAccessTokenForShop(shop) {
   const sessions = await sessionStorage.findSessionsByShop(shop);
-
   const offlineSession = sessions.find((session) => session.isOnline === false);
 
   if (!offlineSession?.accessToken) {
@@ -21,6 +20,21 @@ function toOrderGid(orderId) {
   return `gid://shopify/Order/${orderId}`;
 }
 
+function toGmt7IsoString(dateInput = new Date()) {
+  const date = new Date(dateInput);
+  const offsetMs = 7 * 60 * 60 * 1000;
+  const gmt7 = new Date(date.getTime() + offsetMs);
+
+  const year = gmt7.getUTCFullYear();
+  const month = String(gmt7.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(gmt7.getUTCDate()).padStart(2, "0");
+  const hours = String(gmt7.getUTCHours()).padStart(2, "0");
+  const minutes = String(gmt7.getUTCMinutes()).padStart(2, "0");
+  const seconds = String(gmt7.getUTCSeconds()).padStart(2, "0");
+
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
+}
+
 async function appendOrderLinkSubmissionMetafield({
   shop,
   accessToken,
@@ -35,6 +49,12 @@ async function appendOrderLinkSubmissionMetafield({
       order(id: $id) {
         id
         metafield(namespace: "custom", key: "link_submission") {
+          id
+          type
+          value
+          compareDigest
+        }
+        lastSubmissionTimestamp: metafield(namespace: "custom", key: "last_submission_timestamp") {
           id
           type
           value
@@ -69,11 +89,12 @@ async function appendOrderLinkSubmissionMetafield({
   }
 
   let currentSubmissions = [];
-  const existingMetafield = order.metafield;
+  const existingLinkMetafield = order.metafield;
+  const existingTimestampMetafield = order.lastSubmissionTimestamp;
 
-  if (existingMetafield?.value) {
+  if (existingLinkMetafield?.value) {
     try {
-      const parsed = JSON.parse(existingMetafield.value);
+      const parsed = JSON.parse(existingLinkMetafield.value);
       currentSubmissions = Array.isArray(parsed) ? parsed : [];
     } catch {
       currentSubmissions = [];
@@ -82,8 +103,15 @@ async function appendOrderLinkSubmissionMetafield({
 
   currentSubmissions.push(submission);
 
+  // Keep only the latest 5 entries
+  if (currentSubmissions.length > 5) {
+    currentSubmissions = currentSubmissions.slice(-5);
+  }
+
+  const latestTimestamp = submission.savedAt;
+
   const setMetafieldMutation = `
-    mutation SetOrderLinkSubmission($metafields: [MetafieldsSetInput!]!) {
+    mutation SetOrderMetafields($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
         metafields {
           id
@@ -100,17 +128,28 @@ async function appendOrderLinkSubmissionMetafield({
     }
   `;
 
-  const metafieldInput = {
-    ownerId: order.id,
-    namespace: "custom",
-    key: "link_submission",
-    type: "json",
-    value: JSON.stringify(currentSubmissions),
-  };
-
-  if (existingMetafield?.compareDigest) {
-    metafieldInput.compareDigest = existingMetafield.compareDigest;
-  }
+  const metafields = [
+    {
+      ownerId: order.id,
+      namespace: "custom",
+      key: "link_submission",
+      type: "json",
+      value: JSON.stringify(currentSubmissions),
+      ...(existingLinkMetafield?.compareDigest
+        ? { compareDigest: existingLinkMetafield.compareDigest }
+        : {}),
+    },
+    {
+      ownerId: order.id,
+      namespace: "custom",
+      key: "last_submission_timestamp",
+      type: "date_time",
+      value: latestTimestamp,
+      ...(existingTimestampMetafield?.compareDigest
+        ? { compareDigest: existingTimestampMetafield.compareDigest }
+        : {}),
+    },
+  ];
 
   const setResp = await fetch(endpoint, {
     method: "POST",
@@ -120,9 +159,7 @@ async function appendOrderLinkSubmissionMetafield({
     },
     body: JSON.stringify({
       query: setMetafieldMutation,
-      variables: {
-        metafields: [metafieldInput],
-      },
+      variables: { metafields },
     }),
   });
 
@@ -139,7 +176,7 @@ async function appendOrderLinkSubmissionMetafield({
     );
   }
 
-  return setJson?.data?.metafieldsSet?.metafields?.[0] ?? null;
+  return setJson?.data?.metafieldsSet?.metafields ?? [];
 }
 
 function jsonResponse(data, init = {}) {
@@ -179,7 +216,6 @@ function isValidTikTokOrShopeeUrl(value) {
 
 async function emitTikTokUrlSaved(payload) {
   console.log("Tiktokurlsaved", payload);
-  // Add your LINE / webhook logic here later
 }
 
 async function handleRequest(request) {
@@ -267,6 +303,8 @@ async function handleRequest(request) {
         },
       });
 
+      const savedAtGmt7 = toGmt7IsoString(saved.createdAt);
+
       let metafieldUpdated = false;
       let metafieldErrorMessage = null;
 
@@ -279,7 +317,7 @@ async function handleRequest(request) {
           orderId,
           submission: {
             url: saved.url,
-            savedAt: saved.createdAt.toISOString(),
+            savedAt: savedAtGmt7,
             customerEmail,
             orderId,
             orderName,
@@ -299,7 +337,7 @@ async function handleRequest(request) {
         orderName,
         customerEmail,
         url: saved.url,
-        createdAt: saved.createdAt,
+        createdAt: savedAtGmt7,
       });
 
       const links = await db.tikTokUrl.findMany({
