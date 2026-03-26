@@ -1,12 +1,11 @@
 import db from "../db.server";
+import { shopify } from "../shopify.server";
 
 async function getOfflineAccessTokenForShop(shop) {
-  const session = await db.session.findFirst({
-    where: {
-      shop,
-      isOnline: false,
-    },
-  });
+  const offlineSessionId = shopify.api.session.getOfflineId(shop);
+  const session = await shopify.config.sessionStorage.loadSession(
+    offlineSessionId,
+  );
 
   if (!session?.accessToken) {
     throw new Error(`No offline access token found for shop: ${shop}`);
@@ -269,6 +268,9 @@ async function handleRequest(request) {
         },
       });
 
+      let metafieldUpdated = false;
+      let metafieldErrorMessage = null;
+
       try {
         const accessToken = await getOfflineAccessTokenForShop(shop);
 
@@ -284,8 +286,11 @@ async function handleRequest(request) {
             orderName,
           },
         });
+
+        metafieldUpdated = true;
       } catch (metafieldError) {
         console.error("Metafield update failed:", metafieldError);
+        metafieldErrorMessage = String(metafieldError);
       }
 
       await emitTikTokUrlSaved({
@@ -307,6 +312,8 @@ async function handleRequest(request) {
         ok: true,
         saved,
         links,
+        metafieldUpdated,
+        metafieldErrorMessage,
       });
     } catch (error) {
       console.error("POST /api/tiktok-links failed:", error);
