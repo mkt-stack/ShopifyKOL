@@ -1,17 +1,16 @@
 import db from "../db.server";
-import shopify from "../shopify.server";
+import { sessionStorage } from "../shopify.server";
 
 async function getOfflineAccessTokenForShop(shop) {
-  const offlineSessionId = shopify.api.session.getOfflineId(shop);
-  const session = await shopify.config.sessionStorage.loadSession(
-    offlineSessionId,
-  );
+  const sessions = await sessionStorage.findSessionsByShop(shop);
 
-  if (!session?.accessToken) {
+  const offlineSession = sessions.find((session) => session.isOnline === false);
+
+  if (!offlineSession?.accessToken) {
     throw new Error(`No offline access token found for shop: ${shop}`);
   }
 
-  return session.accessToken;
+  return offlineSession.accessToken;
 }
 
 function toOrderGid(orderId) {
