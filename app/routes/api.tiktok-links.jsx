@@ -35,7 +35,7 @@ function toGmt7IsoString(dateInput = new Date()) {
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
 }
 
-async function appendOrderLinkSubmissionMetafield({
+async function updateOrderData({
   shop,
   accessToken,
   orderId,
@@ -45,9 +45,10 @@ async function appendOrderLinkSubmissionMetafield({
   const orderGid = toOrderGid(orderId);
 
   const getOrderQuery = `
-    query GetOrderLinkSubmission($id: ID!) {
+    query GetOrderData($id: ID!) {
       order(id: $id) {
         id
+        note
         metafield(namespace: "custom", key: "link_submission") {
           id
           type
@@ -103,7 +104,6 @@ async function appendOrderLinkSubmissionMetafield({
 
   currentSubmissions.push(submission);
 
-  // Keep only the latest 5 entries
   if (currentSubmissions.length > 5) {
     currentSubmissions = currentSubmissions.slice(-5);
   }
@@ -169,14 +169,64 @@ async function appendOrderLinkSubmissionMetafield({
     throw new Error(`metafieldsSet failed: ${JSON.stringify(setJson.errors)}`);
   }
 
-  const userErrors = setJson?.data?.metafieldsSet?.userErrors || [];
-  if (userErrors.length > 0) {
+  const metafieldUserErrors = setJson?.data?.metafieldsSet?.userErrors || [];
+  if (metafieldUserErrors.length > 0) {
     throw new Error(
-      `metafieldsSet userErrors: ${JSON.stringify(userErrors)}`,
+      `metafieldsSet userErrors: ${JSON.stringify(metafieldUserErrors)}`,
     );
   }
 
-  return setJson?.data?.metafieldsSet?.metafields ?? [];
+  const noteText = `Latest link submitted at: ${latestTimestamp}`;
+
+  const updateOrderNoteMutation = `
+    mutation UpdateOrderNote($input: OrderInput!) {
+      orderUpdate(input: $input) {
+        order {
+          id
+          note
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const noteResp = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": accessToken,
+    },
+    body: JSON.stringify({
+      query: updateOrderNoteMutation,
+      variables: {
+        input: {
+          id: order.id,
+          note: noteText,
+        },
+      },
+    }),
+  });
+
+  const noteJson = await noteResp.json();
+
+  if (noteJson.errors?.length) {
+    throw new Error(`orderUpdate failed: ${JSON.stringify(noteJson.errors)}`);
+  }
+
+  const noteUserErrors = noteJson?.data?.orderUpdate?.userErrors || [];
+  if (noteUserErrors.length > 0) {
+    throw new Error(
+      `orderUpdate userErrors: ${JSON.stringify(noteUserErrors)}`,
+    );
+  }
+
+  return {
+    metafields: setJson?.data?.metafieldsSet?.metafields ?? [],
+    note: noteJson?.data?.orderUpdate?.order?.note ?? null,
+  };
 }
 
 function jsonResponse(data, init = {}) {
@@ -311,7 +361,7 @@ async function handleRequest(request) {
       try {
         const accessToken = await getOfflineAccessTokenForShop(shop);
 
-        await appendOrderLinkSubmissionMetafield({
+        await updateOrderData({
           shop,
           accessToken,
           orderId,
@@ -326,7 +376,7 @@ async function handleRequest(request) {
 
         metafieldUpdated = true;
       } catch (metafieldError) {
-        console.error("Metafield update failed:", metafieldError);
+        console.error("Metafield/note update failed:", metafieldError);
         metafieldErrorMessage = String(metafieldError);
       }
 
