@@ -1,5 +1,4 @@
-import { json } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
+import { useLoaderData } from "react-router";
 import db from "../db.server";
 
 export async function loader() {
@@ -8,7 +7,7 @@ export async function loader() {
     take: 100,
   });
 
-  return json({ submissions });
+  return { submissions };
 }
 
 function formatBangkokDateTime(dateValue) {
@@ -122,11 +121,7 @@ export default function AppIndex() {
                     </td>
 
                     <td style={{ padding: "12px 8px", wordBreak: "break-all" }}>
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
+                      <a href={item.url} target="_blank" rel="noreferrer">
                         {item.url}
                       </a>
                     </td>
