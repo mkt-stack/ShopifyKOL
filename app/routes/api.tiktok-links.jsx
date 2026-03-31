@@ -1,16 +1,5 @@
 import db from "../db.server";
-import { sessionStorage } from "../shopify.server";
-
-async function getOfflineAccessTokenForShop(shop) {
-  const offlineSessionId = `offline_${shop}`;
-  const session = await sessionStorage.loadSession(offlineSessionId);
-
-  if (!session?.accessToken) {
-    throw new Error(`No offline access token found for shop: ${shop}`);
-  }
-
-  return session.accessToken;
-}
+import { unauthenticated } from "../shopify.server";
 
 function toOrderGid(orderId) {
   if (typeof orderId === "string" && orderId.startsWith("gid://")) {
@@ -33,200 +22,6 @@ function toGmt7IsoString(dateInput = new Date()) {
   const seconds = String(gmt7.getUTCSeconds()).padStart(2, "0");
 
   return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
-}
-
-async function updateOrderData({
-  shop,
-  accessToken,
-  orderId,
-  submission,
-}) {
-  const endpoint = `https://${shop}/admin/api/2026-04/graphql.json`;
-  const orderGid = toOrderGid(orderId);
-
-  const getOrderQuery = `
-    query GetOrderData($id: ID!) {
-      order(id: $id) {
-        id
-        note
-        metafield(namespace: "custom", key: "link_submission") {
-          id
-          type
-          value
-          compareDigest
-        }
-        lastSubmissionTimestamp: metafield(namespace: "custom", key: "last_submission_timestamp") {
-          id
-          type
-          value
-          compareDigest
-        }
-      }
-    }
-  `;
-
-  const getResp = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": accessToken,
-    },
-    body: JSON.stringify({
-      query: getOrderQuery,
-      variables: { id: orderGid },
-    }),
-  });
-
-  const getJson = await getResp.json();
-
-  if (getJson.errors?.length) {
-    throw new Error(`Order query failed: ${JSON.stringify(getJson.errors)}`);
-  }
-
-  const order = getJson?.data?.order;
-
-  if (!order) {
-    throw new Error(`Order not found for ${orderGid}`);
-  }
-
-  let currentSubmissions = [];
-  const existingLinkMetafield = order.metafield;
-  const existingTimestampMetafield = order.lastSubmissionTimestamp;
-
-  if (existingLinkMetafield?.value) {
-    try {
-      const parsed = JSON.parse(existingLinkMetafield.value);
-      currentSubmissions = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      currentSubmissions = [];
-    }
-  }
-
-  currentSubmissions.push(submission);
-
-  if (currentSubmissions.length > 5) {
-    currentSubmissions = currentSubmissions.slice(-5);
-  }
-
-  const latestTimestamp = submission.savedAt;
-
-  const setMetafieldMutation = `
-    mutation SetOrderMetafields($metafields: [MetafieldsSetInput!]!) {
-      metafieldsSet(metafields: $metafields) {
-        metafields {
-          id
-          namespace
-          key
-          type
-          value
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }
-  `;
-
-  const metafields = [
-    {
-      ownerId: order.id,
-      namespace: "custom",
-      key: "link_submission",
-      type: "json",
-      value: JSON.stringify(currentSubmissions),
-      ...(existingLinkMetafield?.compareDigest
-        ? { compareDigest: existingLinkMetafield.compareDigest }
-        : {}),
-    },
-    {
-      ownerId: order.id,
-      namespace: "custom",
-      key: "last_submission_timestamp",
-      type: "date_time",
-      value: latestTimestamp,
-      ...(existingTimestampMetafield?.compareDigest
-        ? { compareDigest: existingTimestampMetafield.compareDigest }
-        : {}),
-    },
-  ];
-
-  const setResp = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": accessToken,
-    },
-    body: JSON.stringify({
-      query: setMetafieldMutation,
-      variables: { metafields },
-    }),
-  });
-
-  const setJson = await setResp.json();
-
-  if (setJson.errors?.length) {
-    throw new Error(`metafieldsSet failed: ${JSON.stringify(setJson.errors)}`);
-  }
-
-  const metafieldUserErrors = setJson?.data?.metafieldsSet?.userErrors || [];
-  if (metafieldUserErrors.length > 0) {
-    throw new Error(
-      `metafieldsSet userErrors: ${JSON.stringify(metafieldUserErrors)}`,
-    );
-  }
-
-  const noteText = `Latest link submitted at: ${latestTimestamp}`;
-
-  const updateOrderNoteMutation = `
-    mutation UpdateOrderNote($input: OrderInput!) {
-      orderUpdate(input: $input) {
-        order {
-          id
-          note
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }
-  `;
-
-  const noteResp = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Shopify-Access-Token": accessToken,
-    },
-    body: JSON.stringify({
-      query: updateOrderNoteMutation,
-      variables: {
-        input: {
-          id: order.id,
-          note: noteText,
-        },
-      },
-    }),
-  });
-
-  const noteJson = await noteResp.json();
-
-  if (noteJson.errors?.length) {
-    throw new Error(`orderUpdate failed: ${JSON.stringify(noteJson.errors)}`);
-  }
-
-  const noteUserErrors = noteJson?.data?.orderUpdate?.userErrors || [];
-  if (noteUserErrors.length > 0) {
-    throw new Error(
-      `orderUpdate userErrors: ${JSON.stringify(noteUserErrors)}`,
-    );
-  }
-
-  return {
-    metafields: setJson?.data?.metafieldsSet?.metafields ?? [],
-    note: noteJson?.data?.orderUpdate?.order?.note ?? null,
-  };
 }
 
 function jsonResponse(data, init = {}) {
@@ -262,6 +57,195 @@ function isValidTikTokOrShopeeUrl(value) {
   } catch {
     return false;
   }
+}
+
+function buildLatestSubmissionNote(existingNote, latestTimestamp) {
+  const marker = "Latest link submitted at (GMT+7):";
+  const newLine = `${marker} ${latestTimestamp}`;
+
+  if (!existingNote || !existingNote.trim()) {
+    return newLine;
+  }
+
+  const lines = existingNote.split("\n");
+  const filtered = lines.filter(
+    (line) => !line.trim().startsWith(marker),
+  );
+
+  return [...filtered, newLine].join("\n").trim();
+}
+
+async function getAdminClient(shop) {
+  const auth = await unauthenticated.admin(shop);
+
+  if (!auth?.admin) {
+    throw new Error(`Could not create admin client for shop: ${shop}`);
+  }
+
+  return auth.admin;
+}
+
+async function getOrderData(admin, orderId) {
+  const orderGid = toOrderGid(orderId);
+
+  const query = `
+    query GetOrderData($id: ID!) {
+      order(id: $id) {
+        id
+        note
+        metafield(namespace: "custom", key: "link_submission") {
+          id
+          type
+          value
+          compareDigest
+        }
+        lastSubmissionTimestamp: metafield(namespace: "custom", key: "last_submission_timestamp") {
+          id
+          type
+          value
+          compareDigest
+        }
+      }
+    }
+  `;
+
+  const resp = await admin.graphql(query, {
+    variables: { id: orderGid },
+  });
+
+  const json = await resp.json();
+
+  if (json.errors?.length) {
+    throw new Error(`Order query failed: ${JSON.stringify(json.errors)}`);
+  }
+
+  const order = json?.data?.order;
+
+  if (!order) {
+    throw new Error(`Order not found for ${orderGid}`);
+  }
+
+  return order;
+}
+
+async function updateOrderMetafields(order, admin, submission) {
+  let currentSubmissions = [];
+
+  if (order.metafield?.value) {
+    try {
+      const parsed = JSON.parse(order.metafield.value);
+      currentSubmissions = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      currentSubmissions = [];
+    }
+  }
+
+  currentSubmissions.push(submission);
+
+  if (currentSubmissions.length > 5) {
+    currentSubmissions = currentSubmissions.slice(-5);
+  }
+
+  const metafields = [
+    {
+      ownerId: order.id,
+      namespace: "custom",
+      key: "link_submission",
+      type: "json",
+      value: JSON.stringify(currentSubmissions),
+      ...(order.metafield?.compareDigest
+        ? { compareDigest: order.metafield.compareDigest }
+        : {}),
+    },
+    {
+      ownerId: order.id,
+      namespace: "custom",
+      key: "last_submission_timestamp",
+      type: "date_time",
+      value: submission.savedAt,
+      ...(order.lastSubmissionTimestamp?.compareDigest
+        ? { compareDigest: order.lastSubmissionTimestamp.compareDigest }
+        : {}),
+    },
+  ];
+
+  const mutation = `
+    mutation SetOrderMetafields($metafields: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $metafields) {
+        metafields {
+          id
+          namespace
+          key
+          type
+          value
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const resp = await admin.graphql(mutation, {
+    variables: { metafields },
+  });
+
+  const json = await resp.json();
+
+  if (json.errors?.length) {
+    throw new Error(`metafieldsSet failed: ${JSON.stringify(json.errors)}`);
+  }
+
+  const userErrors = json?.data?.metafieldsSet?.userErrors || [];
+  if (userErrors.length > 0) {
+    throw new Error(
+      `metafieldsSet userErrors: ${JSON.stringify(userErrors)}`,
+    );
+  }
+
+  return json?.data?.metafieldsSet?.metafields ?? [];
+}
+
+async function updateOrderNote(order, admin, latestTimestamp) {
+  const noteText = buildLatestSubmissionNote(order.note, latestTimestamp);
+
+  const mutation = `
+    mutation UpdateOrderNote($input: OrderInput!) {
+      orderUpdate(input: $input) {
+        order {
+          id
+          note
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const resp = await admin.graphql(mutation, {
+    variables: {
+      input: {
+        id: order.id,
+        note: noteText,
+      },
+    },
+  });
+
+  const json = await resp.json();
+
+  if (json.errors?.length) {
+    throw new Error(`orderUpdate failed: ${JSON.stringify(json.errors)}`);
+  }
+
+  const userErrors = json?.data?.orderUpdate?.userErrors || [];
+  if (userErrors.length > 0) {
+    throw new Error(`orderUpdate userErrors: ${JSON.stringify(userErrors)}`);
+  }
+
+  return json?.data?.orderUpdate?.order?.note ?? null;
 }
 
 async function emitTikTokUrlSaved(payload) {
@@ -356,29 +340,51 @@ async function handleRequest(request) {
       const savedAtGmt7 = toGmt7IsoString(saved.createdAt);
 
       let metafieldUpdated = false;
-      let metafieldErrorMessage = null;
+      let metafieldError = null;
+      let noteUpdated = false;
+      let noteError = null;
 
       try {
-        const accessToken = await getOfflineAccessTokenForShop(shop);
+        const admin = await getAdminClient(shop);
+        const order = await getOrderData(admin, orderId);
 
-        await updateOrderData({
-          shop,
-          accessToken,
-          orderId,
-          submission: {
+        try {
+          await updateOrderMetafields(order, admin, {
             url: saved.url,
             savedAt: savedAtGmt7,
             customerEmail,
             orderId,
             orderName,
-          },
-        });
+          });
+          metafieldUpdated = true;
+        } catch (error) {
+          console.error("Metafield update failed:", error);
+          metafieldError = String(error);
+        }
 
-        metafieldUpdated = true;
-      } catch (metafieldError) {
-        console.error("Metafield/note update failed:", metafieldError);
-        metafieldErrorMessage = String(metafieldError);
+        try {
+          await updateOrderNote(order, admin, savedAtGmt7);
+          noteUpdated = true;
+        } catch (error) {
+          console.error("Note update failed:", error);
+          noteError = String(error);
+        }
+      } catch (error) {
+        console.error("Order/admin lookup failed:", error);
+        const sharedError = String(error);
+        metafieldError = sharedError;
+        noteError = sharedError;
       }
+
+      await db.tikTokUrl.update({
+        where: { id: saved.id },
+        data: {
+          metafieldUpdated,
+          metafieldError,
+          noteUpdated,
+          noteError,
+        },
+      });
 
       await emitTikTokUrlSaved({
         id: saved.id,
@@ -388,6 +394,10 @@ async function handleRequest(request) {
         customerEmail,
         url: saved.url,
         createdAt: savedAtGmt7,
+        metafieldUpdated,
+        metafieldError,
+        noteUpdated,
+        noteError,
       });
 
       const links = await db.tikTokUrl.findMany({
@@ -397,10 +407,14 @@ async function handleRequest(request) {
 
       return jsonResponse({
         ok: true,
-        saved,
+        saved: {
+          ...saved,
+          metafieldUpdated,
+          metafieldError,
+          noteUpdated,
+          noteError,
+        },
         links,
-        metafieldUpdated,
-        metafieldErrorMessage,
       });
     } catch (error) {
       console.error("POST /api/tiktok-links failed:", error);

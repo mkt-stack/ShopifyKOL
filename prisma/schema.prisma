@@ -28,13 +28,20 @@ model Session {
 }
 
 model TikTokUrl {
-  id            String   @id @default(cuid())
-  shop          String
-  orderId       String
-  orderName     String?
-  customerEmail String?
-  url           String
-  createdAt     DateTime @default(now())
+  id               String   @id @default(cuid())
+  shop             String
+  orderId          String
+  orderName        String?
+  customerEmail    String?
+  url              String
+  createdAt        DateTime @default(now())
+
+  metafieldUpdated Boolean  @default(false)
+  metafieldError   String?
+
+  noteUpdated      Boolean  @default(false)
+  noteError        String?
 
   @@index([shop, orderId])
+  @@index([createdAt])
 }
