@@ -68,9 +68,7 @@ function buildLatestSubmissionNote(existingNote, latestTimestamp) {
   }
 
   const lines = existingNote.split("\n");
-  const filtered = lines.filter(
-    (line) => !line.trim().startsWith(marker),
-  );
+  const filtered = lines.filter((line) => !line.trim().startsWith(marker));
 
   return [...filtered, newLine].join("\n").trim();
 }
@@ -142,8 +140,9 @@ async function updateOrderMetafields(order, admin, submission) {
 
   currentSubmissions.push(submission);
 
-  if (currentSubmissions.length > 5) {
-    currentSubmissions = currentSubmissions.slice(-5);
+  // keep latest 10
+  if (currentSubmissions.length > 10) {
+    currentSubmissions = currentSubmissions.slice(-10);
   }
 
   const metafields = [
@@ -278,9 +277,15 @@ async function handleRequest(request) {
         );
       }
 
+      // customer-facing pages show only successful historical submissions
       const links = await db.tikTokUrl.findMany({
-        where: { shop, orderId },
+        where: {
+          shop,
+          orderId,
+          metafieldUpdated: true,
+        },
         orderBy: { createdAt: "desc" },
+        take: 10,
       });
 
       return jsonResponse({ ok: true, links });
@@ -321,7 +326,7 @@ async function handleRequest(request) {
           {
             ok: false,
             error:
-              "ลิงก์ไม่ถูกต้องหรือรูปแบบไม่ถูกต้อง กรุณาวางลิงก์ใหม่ ตรวจสอบอีกครั้ง แล้วคลิกบันทึกลิงก์",
+              "ลิงก์ไม่ถูกต้องหรือรูปแบบไม่ถูกต้อง กรุณาวางลิงก์ใหม่ ตรวจสอบอีกครั้ง แล้วคลิกส่งลิงก์",
           },
           { status: 400 },
         );
@@ -401,14 +406,20 @@ async function handleRequest(request) {
       });
 
       const links = await db.tikTokUrl.findMany({
-        where: { shop, orderId },
+        where: {
+          shop,
+          orderId,
+          metafieldUpdated: true,
+        },
         orderBy: { createdAt: "desc" },
+        take: 10,
       });
 
       return jsonResponse({
         ok: true,
         saved: {
           ...saved,
+          savedAt: savedAtGmt7,
           metafieldUpdated,
           metafieldError,
           noteUpdated,

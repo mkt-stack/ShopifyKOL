@@ -65,12 +65,7 @@ function formatBangkokDateTime(dateValue) {
 
 function getDisplayTimestamp(item) {
   if (!item) return null;
-
   return item.savedAt || item.createdAt || null;
-}
-
-function statusText(ok) {
-  return ok ? 'Success' : 'Failed';
 }
 
 export default async () => {
@@ -124,11 +119,13 @@ function OrderActionModal() {
           setSavedLinks(result.links || []);
           setStatusTextMessage('');
         } else {
-          setStatusTextMessage(result?.error || 'Unable to load saved links');
+          setStatusTextMessage(
+            result?.error || 'ไม่สามารถโหลดลิงก์ที่เคยส่งได้',
+          );
         }
       } catch (error) {
         console.error('Load links failed:', error);
-        setStatusTextMessage('Unable to load saved links');
+        setStatusTextMessage('ไม่สามารถโหลดลิงก์ที่เคยส่งได้');
       }
     }
 
@@ -141,28 +138,30 @@ function OrderActionModal() {
     const value = link.trim();
 
     if (!value) {
-      setStatusTextMessage('Please paste a link before saving');
+      setStatusTextMessage('กรุณาวางลิงก์ก่อนส่ง');
       return;
     }
 
     if (!isValidTikTokOrShopeeUrl(value)) {
-      setStatusTextMessage('Please enter a valid TikTok or Shopee link');
+      setStatusTextMessage(
+        'ลิงก์ไม่ถูกต้องหรือรูปแบบไม่ถูกต้อง กรุณาวางลิงก์ใหม่ ตรวจสอบอีกครั้ง แล้วคลิกส่งลิงก์',
+      );
       return;
     }
 
     if (!orderId) {
-      setStatusTextMessage('Order information is missing');
+      setStatusTextMessage('ไม่พบข้อมูลออเดอร์ กรุณาลองใหม่อีกครั้ง');
       return;
     }
 
     if (!shop) {
-      setStatusTextMessage('Shop information is missing');
+      setStatusTextMessage('ไม่พบข้อมูลร้านค้า กรุณาลองใหม่อีกครั้ง');
       return;
     }
 
     try {
       setSaving(true);
-      setStatusTextMessage('Saving...');
+      setStatusTextMessage('กำลังส่งลิงก์...');
 
       const response = await fetch(`${APP_URL}/api/tiktok-links`, {
         method: 'POST',
@@ -185,7 +184,7 @@ function OrderActionModal() {
         setStatusTextMessage(
           result?.error ||
             result?.details ||
-            'Unable to save link. Please try again.',
+            'ส่งลิงก์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
         );
         return;
       }
@@ -193,18 +192,16 @@ function OrderActionModal() {
       setSavedLinks(result.links || []);
       setLink('');
 
-      const latestSaved = result?.saved;
-      if (
-        latestSaved?.metafieldUpdated === false ||
-        latestSaved?.noteUpdated === false
-      ) {
-        setStatusTextMessage('Link saved, but Shopify sync had an issue');
+      if (result?.saved?.metafieldUpdated === false) {
+        setStatusTextMessage(
+          'ส่งลิงก์แล้ว แต่ระบบบันทึกประวัติไม่สำเร็จ กรุณาแจ้งแอดมิน',
+        );
       } else {
-        setStatusTextMessage('Link saved successfully');
+        setStatusTextMessage('ส่งลิงก์เรียบร้อยแล้ว');
       }
     } catch (error) {
       console.error('Save failed:', error);
-      setStatusTextMessage('Connection failed. Please try again.');
+      setStatusTextMessage('เชื่อมต่อระบบไม่สำเร็จ กรุณาลองใหม่อีกครั้ง');
     } finally {
       setSaving(false);
     }
@@ -212,25 +209,24 @@ function OrderActionModal() {
 
   return (
     <s-customer-account-action
-      primary-action={{
-        content: saving ? 'Saving...' : 'Save link',
-        onAction: handleSave,
-        disabled: saving,
-      }}
       secondary-action={{
         content: 'Close',
       }}
     >
       <s-stack direction="block" gap="base">
-        <s-heading>Submit TikTok / Shopee link</s-heading>
+        <s-heading>ส่งลิงก์ TikTok / Shopee</s-heading>
 
-        {orderName ? <s-text>Order: {orderName}</s-text> : null}
+        {orderName ? <s-text>ออเดอร์: {orderName}</s-text> : null}
 
         <s-text-field
           label="TikTok / Shopee link"
           value={link}
           onInput={(e) => setLink(e.target.value)}
         />
+
+        <s-button onClick={handleSave} disabled={saving}>
+          {saving ? 'กำลังส่งลิงก์...' : 'ส่งลิงก์'}
+        </s-button>
 
         {statusTextMessage ? (
           <s-box padding="tight" border="base" border-radius="base">
@@ -240,30 +236,13 @@ function OrderActionModal() {
 
         <s-box padding="base" border="base" border-radius="base">
           <s-stack direction="block" gap="tight">
-            <s-text emphasis="bold">Latest sync status</s-text>
+            <s-text emphasis="bold">ประวัติการส่งล่าสุด</s-text>
 
             <s-text>
-              Last saved:{' '}
+              ล่าสุด:{' '}
               {latestEntry
                 ? formatBangkokDateTime(getDisplayTimestamp(latestEntry))
                 : '-'}
-            </s-text>
-
-            <s-text>
-              Metafield update:{' '}
-              {latestEntry ? statusText(Boolean(latestEntry.metafieldUpdated)) : '-'}
-            </s-text>
-
-            <s-text>
-              Note update:{' '}
-              {latestEntry ? statusText(Boolean(latestEntry.noteUpdated)) : '-'}
-            </s-text>
-
-            <s-text>
-              Error:{' '}
-              {latestEntry?.metafieldError ||
-                latestEntry?.noteError ||
-                '-'}
             </s-text>
           </s-stack>
         </s-box>
@@ -271,26 +250,20 @@ function OrderActionModal() {
         {savedLinks.length > 0 ? (
           <s-box padding="base" border="base" border-radius="base">
             <s-stack direction="block" gap="tight">
-              <s-text emphasis="bold">Saved links</s-text>
+              <s-text emphasis="bold">ลิงก์ที่ส่งสำเร็จแล้ว</s-text>
 
               {savedLinks.map((item) => (
-                <s-box key={item.id} padding="tight" border="base" border-radius="base">
+                <s-box
+                  key={item.id}
+                  padding="tight"
+                  border="base"
+                  border-radius="base"
+                >
                   <s-stack direction="block" gap="extra-tight">
                     <s-text>{item.url}</s-text>
                     <s-text>
-                      Saved: {formatBangkokDateTime(getDisplayTimestamp(item))}
+                      ส่งเมื่อ: {formatBangkokDateTime(getDisplayTimestamp(item))}
                     </s-text>
-                    <s-text>
-                      Metafield: {statusText(Boolean(item.metafieldUpdated))}
-                    </s-text>
-                    <s-text>
-                      Note: {statusText(Boolean(item.noteUpdated))}
-                    </s-text>
-                    {(item.metafieldError || item.noteError) ? (
-                      <s-text>
-                        Error: {item.metafieldError || item.noteError}
-                      </s-text>
-                    ) : null}
                   </s-stack>
                 </s-box>
               ))}

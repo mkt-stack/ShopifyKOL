@@ -39,7 +39,6 @@ function getShopDomain() {
     }
 
     const hostname = globalThis.location?.hostname || '';
-
     if (hostname && hostname.endsWith('.myshopify.com')) {
       return hostname;
     }
@@ -113,13 +112,13 @@ function Extension() {
     const value = link.trim();
 
     if (!value) {
-      setStatusText('กรุณาวางลิงก์ก่อนบันทึก');
+      setStatusText('กรุณาวางลิงก์ก่อนส่ง');
       return;
     }
 
     if (!isValidTikTokOrShopeeUrl(value)) {
       setStatusText(
-        'ลิงก์ไม่ถูกต้องหรือรูปแบบไม่ถูกต้อง กรุณาวางลิงก์ใหม่ ตรวจสอบอีกครั้ง แล้วคลิกบันทึกลิงก์',
+        'ลิงก์ไม่ถูกต้องหรือรูปแบบไม่ถูกต้อง กรุณาวางลิงก์ใหม่ ตรวจสอบอีกครั้ง แล้วคลิกส่งลิงก์',
       );
       return;
     }
@@ -136,7 +135,7 @@ function Extension() {
 
     try {
       setSaving(true);
-      setStatusText('กำลังบันทึก...');
+      setStatusText('กำลังส่งลิงก์...');
 
       const response = await fetch(`${APP_URL}/api/tiktok-links`, {
         method: 'POST',
@@ -154,20 +153,17 @@ function Extension() {
       });
 
       const result = await response.json();
-      console.log('Save result:', result);
 
       if (!response.ok || !result?.ok) {
         setStatusText(
-          result?.error ||
-            result?.details ||
-            'บันทึกลิงก์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+          result?.error || result?.details || 'ส่งลิงก์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
         );
         return;
       }
 
       setSavedLinks(result.links || []);
       setLink('');
-      setStatusText('บันทึกลิงก์เรียบร้อยแล้ว สามารถเพิ่มลิงก์ใหม่ได้');
+      setStatusText('ส่งลิงก์เรียบร้อยแล้ว');
     } catch (error) {
       console.error('Save failed:', error);
       setStatusText(
@@ -184,7 +180,7 @@ function Extension() {
         <s-heading>วางลิงก์วิดีโอ TikTok</s-heading>
 
         <s-text>
-          วางลิงก์ TikTok หรือ Shopee ที่ถูกต้อง แล้วคลิกบันทึกลิงก์
+          วางลิงก์ TikTok หรือ Shopee ที่ถูกต้อง แล้วคลิกส่งลิงก์
         </s-text>
 
         <s-text-field
@@ -194,7 +190,7 @@ function Extension() {
         />
 
         <s-button onClick={handleSave} disabled={saving}>
-          {saving ? 'กำลังบันทึก...' : 'บันทึกลิงก์'}
+          {saving ? 'กำลังส่งลิงก์...' : 'ส่งลิงก์'}
         </s-button>
 
         {statusText ? (
@@ -206,7 +202,7 @@ function Extension() {
         {savedLinks.length > 0 ? (
           <s-box padding="base" border="base" border-radius="base">
             <s-stack direction="block" gap="tight">
-              <s-text>ลิงก์ที่บันทึกแล้ว</s-text>
+              <s-text>ลิงก์ที่ส่งสำเร็จแล้ว</s-text>
               {savedLinks.map((item) => (
                 <s-text key={item.id}>{item.url}</s-text>
               ))}
