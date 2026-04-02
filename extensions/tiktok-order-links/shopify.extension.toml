@@ -11,5 +11,14 @@ target = "customer-account.order-status.block.render"
 module = "./src/OrderStatusBlock.jsx"
 default_placement = "ORDER_SUMMARY1"
 
+[[extensions.targeting]]
+target = "customer-account.order.action.menu-item.render"
+module = "./src/OrderActionMenuItem.jsx"
+
+[[extensions.targeting]]
+target = "customer-account.order.action.render"
+module = "./src/OrderActionModal.jsx"
+
 [extensions.capabilities]
 network_access = true
+api_access = true
