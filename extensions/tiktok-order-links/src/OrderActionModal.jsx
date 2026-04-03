@@ -81,7 +81,8 @@ function OrderActionModal() {
   const order = globalThis.shopify?.order?.value;
   const customer = globalThis.shopify?.customer?.value;
 
-  const orderId = order?.id || '';
+  // IMPORTANT: order action targets should use shopify.orderId
+  const orderId = globalThis.shopify?.orderId || order?.id || '';
   const orderName = order?.name || '';
   const shop = getShopDomain();
 
