@@ -35,6 +35,8 @@ model TikTokUrl {
   customerName     String?
   customerEmail    String?
   url              String
+  creatorHandle    String?
+  postDate         DateTime?
   createdAt        DateTime @default(now())
 
   metafieldUpdated Boolean  @default(false)

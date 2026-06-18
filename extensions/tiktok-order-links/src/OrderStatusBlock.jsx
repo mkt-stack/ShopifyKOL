@@ -24,6 +24,19 @@ function isValidTikTokOrShopeeUrl(value) {
   }
 }
 
+function formatBangkokDateTime(dateValue = '') {
+  if (!dateValue) return '-';
+  try {
+    return new Intl.DateTimeFormat('th-TH', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: 'Asia/Bangkok',
+    }).format(new Date(dateValue));
+  } catch {
+    return String(dateValue);
+  }
+}
+
 function getShopDomain() {
   try {
     const shopValue = globalThis.shopify?.shop?.value;
@@ -55,7 +68,8 @@ export default async () => {
 
 function Extension() {
   const [link, setLink] = useState('');
-  const [savedLinks, setSavedLinks] = useState([]);
+  const [savedLinks, setSavedLinks] = useState(/** @type {any[]} */([]));
+
   const [statusText, setStatusText] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -214,7 +228,17 @@ function Extension() {
             <s-stack direction="block" gap="tight">
               <s-text>ลิงก์ที่ส่งสำเร็จแล้ว</s-text>
               {savedLinks.map((item) => (
-                <s-text key={item.id}>{item.url}</s-text>
+                <s-box key={item.id} padding="base" border="base" border-radius="base">
+                  <s-stack direction="block" gap="base">
+                    <s-text>{item.url}</s-text>
+                    {item.creatorHandle ? (
+                      <s-text>Creator: @{item.creatorHandle}</s-text>
+                    ) : null}
+                    {item.postDate ? (
+                      <s-text>วันที่โพสต์: {formatBangkokDateTime(item.postDate)}</s-text>
+                    ) : null}
+                  </s-stack>
+                </s-box>
               ))}
             </s-stack>
           </s-box>

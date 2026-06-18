@@ -74,7 +74,8 @@ export default async () => {
 
 function OrderActionModal() {
   const [link, setLink] = useState('');
-  const [savedLinks, setSavedLinks] = useState([]);
+  const [savedLinks, setSavedLinks] = useState(/** @type {any[]} */([]));
+
   const [statusTextMessage, setStatusTextMessage] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -256,18 +257,24 @@ function OrderActionModal() {
 
         {savedLinks.length > 0 ? (
           <s-box padding="base" border="base" border-radius="base">
-            <s-stack direction="block" gap="tight">
+            <s-stack direction="block" gap="base">
               <s-text emphasis="bold">ลิงก์ที่ส่งสำเร็จแล้ว</s-text>
 
               {savedLinks.map((item) => (
                 <s-box
                   key={item.id}
-                  padding="tight"
+                  padding="base"
                   border="base"
                   border-radius="base"
                 >
-                  <s-stack direction="block" gap="extra-tight">
+                  <s-stack direction="block" gap="base">
                     <s-text>{item.url}</s-text>
+                    {item.creatorHandle ? (
+                      <s-text>Creator: @{item.creatorHandle}</s-text>
+                    ) : null}
+                    {item.postDate ? (
+                      <s-text>วันที่โพสต์: {formatBangkokDateTime(item.postDate)}</s-text>
+                    ) : null}
                     <s-text>
                       ส่งเมื่อ: {formatBangkokDateTime(getDisplayTimestamp(item))}
                     </s-text>

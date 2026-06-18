@@ -85,9 +85,10 @@ export default function AppIndex() {
             <thead>
               <tr style={{ textAlign: "left", borderBottom: "1px solid #E5E7EB" }}>
                 <th style={{ padding: "12px 8px" }}>เวลา</th>
-                <th style={{ padding: "12px 8px" }}>Order ID</th>
                 <th style={{ padding: "12px 8px" }}>Order Name</th>
                 <th style={{ padding: "12px 8px" }}>Customer</th>
+                <th style={{ padding: "12px 8px" }}>Creator Handle</th>
+                <th style={{ padding: "12px 8px" }}>Post Date</th>
                 <th style={{ padding: "12px 8px" }}>URL</th>
                 <th style={{ padding: "12px 8px" }}>Metafield</th>
                 <th style={{ padding: "12px 8px" }}>Note</th>
@@ -108,16 +109,22 @@ export default function AppIndex() {
                       {formatBangkokDateTime(item.createdAt)}
                     </td>
 
-                    <td style={{ padding: "12px 8px", wordBreak: "break-all" }}>
-                      {item.orderId}
-                    </td>
-
                     <td style={{ padding: "12px 8px" }}>
                       {item.orderName || "-"}
                     </td>
 
                     <td style={{ padding: "12px 8px" }}>
                       {item.customerName || item.customerEmail || "-"}
+                    </td>
+
+                    <td style={{ padding: "12px 8px" }}>
+                      {item.creatorHandle ? `@${item.creatorHandle}` : "-"}
+                    </td>
+
+                    <td style={{ padding: "12px 8px", whiteSpace: "nowrap" }}>
+                      {item.postDate
+                        ? formatBangkokDateTime(item.postDate)
+                        : "-"}
                     </td>
 
                     <td style={{ padding: "12px 8px", wordBreak: "break-all" }}>

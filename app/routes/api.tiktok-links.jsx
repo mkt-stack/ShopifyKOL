@@ -252,6 +252,64 @@ async function emitTikTokUrlSaved(payload) {
   console.log("Tiktokurlsaved", payload);
 }
 
+function isTikTokUrl(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === "tiktok.com" || host.endsWith(".tiktok.com");
+  } catch {
+    return false;
+  }
+}
+
+function parseTikTokVideoInfo(url) {
+  if (!url) return null;
+  try {
+    const match = new URL(url).pathname.match(/\/@([^/?#]+)\/video\/(\d+)/);
+    if (!match) return null;
+    return { creatorHandle: match[1], videoId: match[2] };
+  } catch {
+    return null;
+  }
+}
+
+function estimatePostDateFromVideoId(videoId) {
+  try {
+    const timestamp = Number(BigInt(videoId) >> 32n);
+    if (timestamp < 1_000_000_000 || timestamp > 9_999_999_999) return null;
+    return new Date(timestamp * 1000);
+  } catch {
+    return null;
+  }
+}
+
+async function resolveTikTokVideoInfo(inputUrl) {
+  // Full video URL — no resolution needed
+  const direct = parseTikTokVideoInfo(inputUrl);
+  if (direct) return direct;
+
+  // Short URL (vt.tiktok.com) — follow redirects to get canonical URL
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(inputUrl, {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+        Accept: "text/html,application/xhtml+xml",
+      },
+    });
+    clearTimeout(timeoutId);
+    try { response.body?.cancel(); } catch {}
+    return parseTikTokVideoInfo(response.url);
+  } catch {
+    clearTimeout(timeoutId);
+    return null;
+  }
+}
+
 async function handleRequest(request) {
   if (request.method === "OPTIONS") {
     return new Response(null, {
@@ -353,6 +411,32 @@ async function handleRequest(request) {
         );
       }
 
+      // Resolve TikTok video info and validate post is within 30 days
+      let creatorHandle = null;
+      let postDate = null;
+
+      if (isTikTokUrl(cleanUrl)) {
+        const videoInfo = await resolveTikTokVideoInfo(cleanUrl);
+        if (videoInfo) {
+          creatorHandle = videoInfo.creatorHandle;
+          const estimated = estimatePostDateFromVideoId(videoInfo.videoId);
+          if (estimated) {
+            postDate = estimated;
+            const ageInDays = (Date.now() - estimated.getTime()) / 86_400_000;
+            if (ageInDays > 30) {
+              return jsonResponse(
+                {
+                  ok: false,
+                  error:
+                    "กรุณาแปะลิ้งของ post ใหม่ที่พึ่ง post ไม่เกิน 30 วันเท่านั้น หากมีข้อสงสัยกรุณาอ่าน FAQ หรือติดต่อ admin",
+                },
+                { status: 422 },
+              );
+            }
+          }
+        }
+      }
+
       const saved = await db.tikTokUrl.create({
         data: {
           shop,
@@ -361,6 +445,8 @@ async function handleRequest(request) {
           customerName,
           customerEmail,
           url: cleanUrl,
+          creatorHandle,
+          postDate,
         },
       });
 
@@ -391,7 +477,9 @@ async function handleRequest(request) {
             savedAt: savedAtGmt7,
             customerEmail,
             orderId,
-            orderName,
+            orderName: resolvedOrderName,
+            creatorHandle,
+            postDate: postDate ? toGmt7IsoString(postDate) : null,
           });
           metafieldUpdated = true;
         } catch (error) {
