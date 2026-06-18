@@ -1,6 +1,8 @@
 import { useLoaderData } from "react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import db from "../db.server";
+
+const PAGE_SIZE = 100;
 
 export async function loader() {
   const submissions = await db.tikTokUrl.findMany({
@@ -60,6 +62,101 @@ function ErrorText({ text }) {
       }}
     >
       {text}
+    </div>
+  );
+}
+
+function Pagination({ currentPage, totalPages, onPageChange }) {
+  if (totalPages <= 1) return null;
+
+  // Build page list with ellipsis
+  const pageNums = [];
+  for (let i = 1; i <= totalPages; i++) {
+    if (
+      i === 1 ||
+      i === totalPages ||
+      (i >= currentPage - 2 && i <= currentPage + 2)
+    ) {
+      pageNums.push(i);
+    }
+  }
+  const items = [];
+  for (let i = 0; i < pageNums.length; i++) {
+    if (i > 0 && pageNums[i] - pageNums[i - 1] > 1) {
+      items.push("…");
+    }
+    items.push(pageNums[i]);
+  }
+
+  const btnBase = {
+    padding: "5px 10px",
+    borderRadius: 6,
+    fontSize: 13,
+    cursor: "pointer",
+    border: "1px solid #D1D5DB",
+    lineHeight: 1.4,
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 4,
+        alignItems: "center",
+        flexWrap: "wrap",
+      }}
+    >
+      <button
+        style={{
+          ...btnBase,
+          background: currentPage === 1 ? "#F3F4F6" : "white",
+          color: currentPage === 1 ? "#9CA3AF" : "#374151",
+          cursor: currentPage === 1 ? "not-allowed" : "pointer",
+        }}
+        disabled={currentPage === 1}
+        onClick={() => onPageChange(currentPage - 1)}
+      >
+        &laquo; ก่อนหน้า
+      </button>
+
+      {items.map((item, idx) =>
+        item === "…" ? (
+          <span key={`e${idx}`} style={{ padding: "0 4px", color: "#6B7280" }}>
+            …
+          </span>
+        ) : (
+          <button
+            key={item}
+            style={{
+              ...btnBase,
+              background: item === currentPage ? "#2563EB" : "white",
+              color: item === currentPage ? "white" : "#374151",
+              borderColor: item === currentPage ? "#2563EB" : "#D1D5DB",
+              fontWeight: item === currentPage ? 700 : 400,
+            }}
+            onClick={() => onPageChange(item)}
+          >
+            {item}
+          </button>
+        ),
+      )}
+
+      <button
+        style={{
+          ...btnBase,
+          background: currentPage === totalPages ? "#F3F4F6" : "white",
+          color: currentPage === totalPages ? "#9CA3AF" : "#374151",
+          cursor: currentPage === totalPages ? "not-allowed" : "pointer",
+        }}
+        disabled={currentPage === totalPages}
+        onClick={() => onPageChange(currentPage + 1)}
+      >
+        ถัดไป &raquo;
+      </button>
+
+      <span style={{ marginLeft: 8, fontSize: 13, color: "#6B7280" }}>
+        หน้า {currentPage} / {totalPages}
+      </span>
     </div>
   );
 }
@@ -144,6 +241,7 @@ export default function AppIndex() {
   const [postDateFrom, setPostDateFrom] = useState("");
   const [postDateTo, setPostDateTo] = useState("");
   const [creatorHandleFilter, setCreatorHandleFilter] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const hasFilter =
     dateFrom || dateTo || postDateFrom || postDateTo || creatorHandleFilter;
@@ -172,6 +270,17 @@ export default function AppIndex() {
     });
   }, [submissions, dateFrom, dateTo, postDateFrom, postDateTo, creatorHandleFilter]);
 
+  // Reset to page 1 whenever filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dateFrom, dateTo, postDateFrom, postDateTo, creatorHandleFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
+
   function clearFilters() {
     setDateFrom("");
     setDateTo("");
@@ -179,6 +288,14 @@ export default function AppIndex() {
     setPostDateTo("");
     setCreatorHandleFilter("");
   }
+
+  const paginationBar = (
+    <Pagination
+      currentPage={currentPage}
+      totalPages={totalPages}
+      onPageChange={setCurrentPage}
+    />
+  );
 
   return (
     <div style={{ padding: 24 }}>
@@ -268,12 +385,13 @@ export default function AppIndex() {
           padding: 20,
         }}
       >
+        {/* Header row: title + export buttons */}
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            marginBottom: 16,
+            marginBottom: 12,
             flexWrap: "wrap",
             gap: 8,
           }}
@@ -285,7 +403,6 @@ export default function AppIndex() {
               {hasFilter ? ` จาก ${submissions.length}` : ""})
             </span>
           </h2>
-
           <div style={{ display: "flex", gap: 8 }}>
             <button
               style={btnStyle()}
@@ -312,6 +429,9 @@ export default function AppIndex() {
           </div>
         </div>
 
+        {/* Pagination — top */}
+        <div style={{ marginBottom: 12 }}>{paginationBar}</div>
+
         <div style={{ overflowX: "auto" }}>
           <table
             style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}
@@ -336,7 +456,7 @@ export default function AppIndex() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((item) => {
+              {paginated.map((item) => {
                 const combinedError =
                   item.metafieldError || item.noteError || null;
                 return (
@@ -381,7 +501,7 @@ export default function AppIndex() {
                   </tr>
                 );
               })}
-              {filtered.length === 0 ? (
+              {paginated.length === 0 ? (
                 <tr>
                   <td
                     colSpan={9}
@@ -398,6 +518,9 @@ export default function AppIndex() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination — bottom */}
+        <div style={{ marginTop: 16 }}>{paginationBar}</div>
       </div>
     </div>
   );
