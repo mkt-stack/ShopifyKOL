@@ -90,6 +90,7 @@ async function getOrderData(admin, orderId) {
     query GetOrderData($id: ID!) {
       order(id: $id) {
         id
+        name
         note
         metafield(namespace: "custom", key: "link_submission") {
           id
@@ -306,7 +307,13 @@ async function handleRequest(request) {
       const shop = typeof body?.shop === "string" ? body.shop : "";
       const orderId = typeof body?.orderId === "string" ? body.orderId : "";
       const orderName =
-        typeof body?.orderName === "string" ? body.orderName : null;
+        typeof body?.orderName === "string" && body.orderName.trim()
+          ? body.orderName.trim()
+          : null;
+      const customerName =
+        typeof body?.customerName === "string" && body.customerName.trim()
+          ? body.customerName.trim()
+          : null;
       const customerEmail =
         typeof body?.customerEmail === "string" && body.customerEmail.trim()
           ? body.customerEmail.trim()
@@ -332,11 +339,26 @@ async function handleRequest(request) {
         );
       }
 
+      const duplicate = await db.tikTokUrl.findFirst({
+        where: { url: cleanUrl },
+      });
+
+      if (duplicate) {
+        return jsonResponse(
+          {
+            ok: false,
+            error: "ลิงก์นี้เคยถูกส่งไปแล้ว ไม่สามารถส่งลิงก์ซ้ำได้",
+          },
+          { status: 409 },
+        );
+      }
+
       const saved = await db.tikTokUrl.create({
         data: {
           shop,
           orderId,
           orderName,
+          customerName,
           customerEmail,
           url: cleanUrl,
         },
@@ -348,10 +370,20 @@ async function handleRequest(request) {
       let metafieldError = null;
       let noteUpdated = false;
       let noteError = null;
+      let resolvedOrderName = orderName;
 
       try {
         const admin = await getAdminClient(shop);
         const order = await getOrderData(admin, orderId);
+
+        // Backfill orderName from Shopify if not provided by the client
+        if (!resolvedOrderName && order.name) {
+          resolvedOrderName = order.name;
+          await db.tikTokUrl.update({
+            where: { id: saved.id },
+            data: { orderName: resolvedOrderName },
+          });
+        }
 
         try {
           await updateOrderMetafields(order, admin, {
@@ -395,7 +427,8 @@ async function handleRequest(request) {
         id: saved.id,
         shop,
         orderId,
-        orderName,
+        orderName: resolvedOrderName,
+        customerName,
         customerEmail,
         url: saved.url,
         createdAt: savedAtGmt7,

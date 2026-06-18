@@ -32,6 +32,7 @@ model TikTokUrl {
   shop             String
   orderId          String
   orderName        String?
+  customerName     String?
   customerEmail    String?
   url              String
   createdAt        DateTime @default(now())

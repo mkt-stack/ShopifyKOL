@@ -92,6 +92,11 @@ function OrderActionModal() {
     customer?.email ||
     '';
 
+  const customerName =
+    customer?.displayName ||
+    [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') ||
+    '';
+
   const latestEntry = useMemo(() => {
     if (!savedLinks?.length) return null;
     return savedLinks[0];
@@ -174,6 +179,7 @@ function OrderActionModal() {
           shop,
           orderId,
           orderName,
+          customerName,
           customerEmail,
           url: value,
         }),

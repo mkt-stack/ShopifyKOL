@@ -72,6 +72,11 @@ function Extension() {
     customer?.email ||
     '';
 
+  const customerName =
+    customer?.displayName ||
+    [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') ||
+    '';
+
   useEffect(() => {
     async function loadLinks() {
       if (!orderId || !shop) return;
@@ -147,6 +152,7 @@ function Extension() {
           shop,
           orderId,
           orderName,
+          customerName,
           customerEmail,
           url: value,
         }),
@@ -184,10 +190,14 @@ function Extension() {
         </s-text>
 
         <s-text-field
-          label="ลิงก์ TikTok / Shopee"
+          label="ลิงก์ TikTok / Shopee  "
           value={link}
           onInput={(e) => setLink(e.target.value)}
-        />
+        /> 
+        
+        <s-text>
+        📌 กรุณาสั่งสินค้าตัวอย่างให้เรียบร้อยก่อนกดส่งคลิป
+        </s-text>
 
         <s-button onClick={handleSave} disabled={saving}>
           {saving ? 'กำลังส่งลิงก์...' : 'ส่งลิงก์'}

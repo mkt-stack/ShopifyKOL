@@ -87,7 +87,7 @@ export default function AppIndex() {
                 <th style={{ padding: "12px 8px" }}>เวลา</th>
                 <th style={{ padding: "12px 8px" }}>Order ID</th>
                 <th style={{ padding: "12px 8px" }}>Order Name</th>
-                <th style={{ padding: "12px 8px" }}>Customer Email</th>
+                <th style={{ padding: "12px 8px" }}>Customer</th>
                 <th style={{ padding: "12px 8px" }}>URL</th>
                 <th style={{ padding: "12px 8px" }}>Metafield</th>
                 <th style={{ padding: "12px 8px" }}>Note</th>
@@ -117,7 +117,7 @@ export default function AppIndex() {
                     </td>
 
                     <td style={{ padding: "12px 8px" }}>
-                      {item.customerEmail || "-"}
+                      {item.customerName || item.customerEmail || "-"}
                     </td>
 
                     <td style={{ padding: "12px 8px", wordBreak: "break-all" }}>
