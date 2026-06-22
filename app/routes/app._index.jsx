@@ -244,6 +244,8 @@ export default function AppIndex() {
   const [currentPage, setCurrentPage] = useState(1);
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState(null);
+  const [fixingNames, setFixingNames] = useState(false);
+  const [fixNamesResult, setFixNamesResult] = useState(null);
 
   const hasFilter =
     dateFrom || dateTo || postDateFrom || postDateTo || creatorHandleFilter;
@@ -332,6 +334,50 @@ export default function AppIndex() {
       setReprocessResult({ ok: false, error: String(e) });
     } finally {
       setReprocessing(false);
+    }
+  }
+
+  async function handleFixOrderNames() {
+    setFixingNames(true);
+    setFixNamesResult({ ok: true, inProgress: true, total: null, processed: 0, success: 0, failed: 0 });
+
+    let offset = 0;
+    let totalSuccess = 0;
+    let totalFailed = 0;
+    let grandTotal = null;
+
+    try {
+      while (true) {
+        const res = await fetch(`/api/fix-order-names?offset=${offset}`, { method: "POST" });
+        const data = await res.json();
+
+        if (!data.ok) {
+          setFixNamesResult({ ok: false, error: data.error || "Unknown error" });
+          break;
+        }
+
+        grandTotal = data.total;
+        totalSuccess += data.success;
+        totalFailed += data.failed;
+        offset = data.nextOffset;
+
+        setFixNamesResult({
+          ok: true,
+          inProgress: data.hasMore,
+          total: grandTotal,
+          processed: offset,
+          success: totalSuccess,
+          failed: totalFailed,
+        });
+
+        if (!data.hasMore || data.batchSize === 0) break;
+      }
+
+      revalidator.revalidate();
+    } catch (e) {
+      setFixNamesResult({ ok: false, error: String(e) });
+    } finally {
+      setFixingNames(false);
     }
   }
 
@@ -486,6 +532,20 @@ export default function AppIndex() {
             >
               {reprocessing ? "กำลัง Reprocess..." : "Reprocess Failed (7 วัน)"}
             </button>
+            <button
+              style={{
+                ...btnStyle(),
+                borderColor: "#8B5CF6",
+                color: "#4C1D95",
+                background: "#F5F3FF",
+                opacity: fixingNames ? 0.6 : 1,
+                cursor: fixingNames ? "not-allowed" : "pointer",
+              }}
+              disabled={fixingNames}
+              onClick={handleFixOrderNames}
+            >
+              {fixingNames ? "กำลัง Fix Order Names..." : "Fix Missing Order Names"}
+            </button>
           </div>
         </div>
 
@@ -507,6 +567,27 @@ export default function AppIndex() {
               : reprocessResult.inProgress
                 ? `⏳ กำลัง Reprocess... ${reprocessResult.processed}${reprocessResult.total ? `/${reprocessResult.total}` : ""} รายการ — สำเร็จ ${reprocessResult.success}, ข้อผิดพลาด ${reprocessResult.failed}`
                 : `✓ Reprocess เสร็จสิ้น: ${reprocessResult.total} รายการ — สำเร็จ ${reprocessResult.success}, ยังมีข้อผิดพลาด ${reprocessResult.failed}`}
+          </div>
+        ) : null}
+
+        {/* Fix order names result banner */}
+        {fixNamesResult ? (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: "10px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              background: fixNamesResult.ok ? (fixNamesResult.inProgress ? "#F5F3FF" : "#F0FDF4") : "#FFF1F2",
+              border: `1px solid ${fixNamesResult.ok ? (fixNamesResult.inProgress ? "#C4B5FD" : "#86EFAC") : "#FECDD3"}`,
+              color: fixNamesResult.ok ? (fixNamesResult.inProgress ? "#4C1D95" : "#166534") : "#9F1239",
+            }}
+          >
+            {!fixNamesResult.ok
+              ? `เกิดข้อผิดพลาด: ${fixNamesResult.error}`
+              : fixNamesResult.inProgress
+                ? `⏳ กำลัง Fix Order Names... ${fixNamesResult.processed}${fixNamesResult.total ? `/${fixNamesResult.total}` : ""} รายการ — อัปเดตแล้ว ${fixNamesResult.success}`
+                : `✓ Fix Order Names เสร็จสิ้น: อัปเดต ${fixNamesResult.success} รายการ, ไม่สำเร็จ ${fixNamesResult.failed}`}
           </div>
         ) : null}
 
