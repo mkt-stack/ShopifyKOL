@@ -167,6 +167,9 @@ export async function action({ request }) {
       const order = await getOrderData(admin, entry.orderId);
       const savedAtGmt7 = toGmt7IsoString(entry.createdAt);
 
+      // Backfill order name if it was missing (e.g. submitted from orders list page)
+      const orderName = entry.orderName || order.name || null;
+
       if (!metafieldUpdated) {
         try {
           await updateOrderMetafields(order, admin, {
@@ -174,7 +177,7 @@ export async function action({ request }) {
             savedAt: savedAtGmt7,
             customerEmail: entry.customerEmail,
             orderId: entry.orderId,
-            orderName: entry.orderName,
+            orderName,
             creatorHandle: entry.creatorHandle,
             postDate: entry.postDate ? toGmt7IsoString(entry.postDate) : null,
           });
@@ -197,7 +200,7 @@ export async function action({ request }) {
 
       await db.tikTokUrl.update({
         where: { id: entry.id },
-        data: { metafieldUpdated, metafieldError, noteUpdated, noteError },
+        data: { metafieldUpdated, metafieldError, noteUpdated, noteError, orderName },
       });
 
       if (metafieldUpdated && noteUpdated) successCount++;
