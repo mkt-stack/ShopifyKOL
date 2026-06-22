@@ -292,14 +292,42 @@ export default function AppIndex() {
 
   async function handleReprocess() {
     setReprocessing(true);
-    setReprocessResult(null);
+    setReprocessResult({ ok: true, inProgress: true, total: null, processed: 0, success: 0, failed: 0 });
+
+    let offset = 0;
+    let totalSuccess = 0;
+    let totalFailed = 0;
+    let grandTotal = null;
+
     try {
-      const res = await fetch("/api/reprocess", { method: "POST" });
-      const data = await res.json();
-      setReprocessResult(data);
-      if (data.ok && data.success > 0) {
-        // Reload after a short delay so the table reflects the updated statuses
-        setTimeout(() => window.location.reload(), 1500);
+      while (true) {
+        const res = await fetch(`/api/reprocess?offset=${offset}`, { method: "POST" });
+        const data = await res.json();
+
+        if (!data.ok) {
+          setReprocessResult({ ok: false, error: data.error || "Unknown error" });
+          break;
+        }
+
+        grandTotal = data.total;
+        totalSuccess += data.success;
+        totalFailed += data.failed;
+        offset = data.nextOffset;
+
+        setReprocessResult({
+          ok: true,
+          inProgress: data.hasMore,
+          total: grandTotal,
+          processed: offset,
+          success: totalSuccess,
+          failed: totalFailed,
+        });
+
+        if (!data.hasMore || data.batchSize === 0) break;
+      }
+
+      if (totalSuccess > 0) {
+        setTimeout(() => window.location.reload(), 2000);
       }
     } catch (e) {
       setReprocessResult({ ok: false, error: String(e) });
@@ -470,14 +498,16 @@ export default function AppIndex() {
               padding: "10px 14px",
               borderRadius: 8,
               fontSize: 13,
-              background: reprocessResult.ok ? "#F0FDF4" : "#FFF1F2",
-              border: `1px solid ${reprocessResult.ok ? "#86EFAC" : "#FECDD3"}`,
-              color: reprocessResult.ok ? "#166534" : "#9F1239",
+              background: reprocessResult.ok ? (reprocessResult.inProgress ? "#FFFBEB" : "#F0FDF4") : "#FFF1F2",
+              border: `1px solid ${reprocessResult.ok ? (reprocessResult.inProgress ? "#FCD34D" : "#86EFAC") : "#FECDD3"}`,
+              color: reprocessResult.ok ? (reprocessResult.inProgress ? "#92400E" : "#166534") : "#9F1239",
             }}
           >
-            {reprocessResult.ok
-              ? `Reprocess เสร็จสิ้น: ${reprocessResult.total} รายการ — สำเร็จ ${reprocessResult.success}, ยังมีข้อผิดพลาด ${reprocessResult.failed}${reprocessResult.success > 0 ? " (กำลังโหลดใหม่...)" : ""}`
-              : `เกิดข้อผิดพลาด: ${reprocessResult.error}`}
+            {!reprocessResult.ok
+              ? `เกิดข้อผิดพลาด: ${reprocessResult.error}`
+              : reprocessResult.inProgress
+                ? `⏳ กำลัง Reprocess... ${reprocessResult.processed}${reprocessResult.total ? `/${reprocessResult.total}` : ""} รายการ — สำเร็จ ${reprocessResult.success}, ข้อผิดพลาด ${reprocessResult.failed}`
+                : `✓ Reprocess เสร็จสิ้น: ${reprocessResult.total} รายการ — สำเร็จ ${reprocessResult.success}, ยังมีข้อผิดพลาด ${reprocessResult.failed}${reprocessResult.success > 0 ? " (กำลังโหลดใหม่...)" : ""}`}
           </div>
         ) : null}
 

@@ -1,7 +1,7 @@
 import db from "../db.server";
 import { unauthenticated } from "../shopify.server";
 
-// ── Shared helpers (mirrors api.tiktok-links.jsx) ────────────────────────────
+// ── Shared helpers ────────────────────────────────────────────────────────────
 
 function toOrderGid(orderId) {
   if (typeof orderId === "string" && orderId.startsWith("gid://")) return orderId;
@@ -31,7 +31,6 @@ async function getAdminClient(shop) {
 }
 
 async function getOrderData(admin, orderId) {
-  const orderGid = toOrderGid(orderId);
   const query = `
     query GetOrderData($id: ID!) {
       order(id: $id) {
@@ -39,25 +38,19 @@ async function getOrderData(admin, orderId) {
         name
         note
         metafield(namespace: "custom", key: "link_submission") {
-          id
-          type
-          value
-          compareDigest
+          id type value compareDigest
         }
         lastSubmissionTimestamp: metafield(namespace: "custom", key: "last_submission_timestamp") {
-          id
-          type
-          value
-          compareDigest
+          id type value compareDigest
         }
       }
     }
   `;
-  const resp = await admin.graphql(query, { variables: { id: orderGid } });
+  const resp = await admin.graphql(query, { variables: { id: toOrderGid(orderId) } });
   const json = await resp.json();
   if (json.errors?.length) throw new Error(`Order query failed: ${JSON.stringify(json.errors)}`);
   const order = json?.data?.order;
-  if (!order) throw new Error(`Order not found for ${orderGid}`);
+  if (!order) throw new Error(`Order not found for ${orderId}`);
   return order;
 }
 
@@ -67,9 +60,7 @@ async function updateOrderMetafields(order, admin, submission) {
     try {
       const parsed = JSON.parse(order.metafield.value);
       currentSubmissions = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      currentSubmissions = [];
-    }
+    } catch { currentSubmissions = []; }
   }
   currentSubmissions.push(submission);
   if (currentSubmissions.length > 10) currentSubmissions = currentSubmissions.slice(-10);
@@ -95,39 +86,39 @@ async function updateOrderMetafields(order, admin, submission) {
     },
   ];
 
-  const mutation = `
+  const resp = await admin.graphql(`
     mutation SetOrderMetafields($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
-        metafields { id namespace key type value }
+        metafields { id }
         userErrors { field message }
       }
     }
-  `;
-  const resp = await admin.graphql(mutation, { variables: { metafields } });
+  `, { variables: { metafields } });
+
   const json = await resp.json();
   if (json.errors?.length) throw new Error(`metafieldsSet failed: ${JSON.stringify(json.errors)}`);
   const userErrors = json?.data?.metafieldsSet?.userErrors || [];
-  if (userErrors.length > 0) throw new Error(`metafieldsSet userErrors: ${JSON.stringify(userErrors)}`);
+  if (userErrors.length) throw new Error(`metafieldsSet userErrors: ${JSON.stringify(userErrors)}`);
 }
 
 async function updateOrderNote(order, admin, latestTimestamp) {
   const noteText = buildLatestSubmissionNote(order.note, latestTimestamp);
-  const mutation = `
+  const resp = await admin.graphql(`
     mutation UpdateOrderNote($input: OrderInput!) {
       orderUpdate(input: $input) {
-        order { id note }
+        order { id }
         userErrors { field message }
       }
     }
-  `;
-  const resp = await admin.graphql(mutation, { variables: { input: { id: order.id, note: noteText } } });
+  `, { variables: { input: { id: order.id, note: noteText } } });
+
   const json = await resp.json();
   if (json.errors?.length) throw new Error(`orderUpdate failed: ${JSON.stringify(json.errors)}`);
   const userErrors = json?.data?.orderUpdate?.userErrors || [];
-  if (userErrors.length > 0) throw new Error(`orderUpdate userErrors: ${JSON.stringify(userErrors)}`);
+  if (userErrors.length) throw new Error(`orderUpdate userErrors: ${JSON.stringify(userErrors)}`);
 }
 
-// ── Action ────────────────────────────────────────────────────────────────────
+// ── Action: processes one batch of entries ────────────────────────────────────
 
 function jsonResp(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -136,24 +127,35 @@ function jsonResp(data, status = 200) {
   });
 }
 
+const BATCH_SIZE = 10;
+
 export async function action({ request }) {
   if (request.method !== "POST") return jsonResp({ ok: false }, 405);
 
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const reqUrl = new URL(request.url);
+  const offset = parseInt(reqUrl.searchParams.get("offset") || "0", 10);
 
-  const failedEntries = await db.tikTokUrl.findMany({
-    where: {
-      createdAt: { gte: sevenDaysAgo },
-      OR: [{ metafieldUpdated: false }, { noteUpdated: false }],
-    },
-    orderBy: { createdAt: "asc" },
-  });
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const where = {
+    createdAt: { gte: sevenDaysAgo },
+    OR: [{ metafieldUpdated: false }, { noteUpdated: false }],
+  };
+
+  // Get total count + current batch in parallel
+  const [total, batch] = await Promise.all([
+    db.tikTokUrl.count({ where }),
+    db.tikTokUrl.findMany({
+      where,
+      orderBy: { createdAt: "asc" },
+      skip: offset,
+      take: BATCH_SIZE,
+    }),
+  ]);
 
   let successCount = 0;
   let failCount = 0;
-  const errors = [];
 
-  for (const entry of failedEntries) {
+  for (const entry of batch) {
     let metafieldUpdated = entry.metafieldUpdated;
     let metafieldError = entry.metafieldError;
     let noteUpdated = entry.noteUpdated;
@@ -161,6 +163,7 @@ export async function action({ request }) {
 
     try {
       const admin = await getAdminClient(entry.shop);
+      // Single order fetch — reuse for both metafield and note updates
       const order = await getOrderData(admin, entry.orderId);
       const savedAtGmt7 = toGmt7IsoString(entry.createdAt);
 
@@ -183,10 +186,8 @@ export async function action({ request }) {
       }
 
       if (!noteUpdated) {
-        // Re-fetch order so we have the latest note + compareDigest after metafield update
-        const freshOrder = await getOrderData(admin, entry.orderId);
         try {
-          await updateOrderNote(freshOrder, admin, toGmt7IsoString(entry.createdAt));
+          await updateOrderNote(order, admin, savedAtGmt7);
           noteUpdated = true;
           noteError = null;
         } catch (e) {
@@ -199,23 +200,22 @@ export async function action({ request }) {
         data: { metafieldUpdated, metafieldError, noteUpdated, noteError },
       });
 
-      if (metafieldUpdated && noteUpdated) {
-        successCount++;
-      } else {
-        failCount++;
-        errors.push({ id: entry.id, url: entry.url, metafieldError, noteError });
-      }
+      if (metafieldUpdated && noteUpdated) successCount++;
+      else failCount++;
     } catch (e) {
       failCount++;
-      errors.push({ id: entry.id, url: entry.url, error: String(e) });
     }
   }
 
+  const nextOffset = offset + batch.length;
   return jsonResp({
     ok: true,
-    total: failedEntries.length,
+    total,
+    batchSize: batch.length,
+    offset,
+    nextOffset,
+    hasMore: nextOffset < total,
     success: successCount,
     failed: failCount,
-    errors,
   });
 }
