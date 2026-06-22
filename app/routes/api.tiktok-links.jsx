@@ -397,8 +397,9 @@ async function handleRequest(request) {
         );
       }
 
+      // Only block if a SUCCESSFUL submission already exists for this URL
       const duplicate = await db.tikTokUrl.findFirst({
-        where: { url: cleanUrl },
+        where: { url: cleanUrl, metafieldUpdated: true },
       });
 
       if (duplicate) {

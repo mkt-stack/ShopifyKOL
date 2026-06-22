@@ -241,6 +241,8 @@ export default function AppIndex() {
   const [postDateTo, setPostDateTo] = useState("");
   const [creatorHandleFilter, setCreatorHandleFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessResult, setReprocessResult] = useState(null);
 
   const hasFilter =
     dateFrom || dateTo || postDateFrom || postDateTo || creatorHandleFilter;
@@ -286,6 +288,24 @@ export default function AppIndex() {
     setPostDateFrom("");
     setPostDateTo("");
     setCreatorHandleFilter("");
+  }
+
+  async function handleReprocess() {
+    setReprocessing(true);
+    setReprocessResult(null);
+    try {
+      const res = await fetch("/api/reprocess", { method: "POST" });
+      const data = await res.json();
+      setReprocessResult(data);
+      if (data.ok && data.success > 0) {
+        // Reload after a short delay so the table reflects the updated statuses
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    } catch (e) {
+      setReprocessResult({ ok: false, error: String(e) });
+    } finally {
+      setReprocessing(false);
+    }
   }
 
   const paginationBar = (
@@ -402,7 +422,7 @@ export default function AppIndex() {
               {hasFilter ? ` จาก ${submissions.length}` : ""})
             </span>
           </h2>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
               style={btnStyle()}
               onClick={() =>
@@ -425,8 +445,41 @@ export default function AppIndex() {
             >
               Export All ({submissions.length})
             </button>
+            <button
+              style={{
+                ...btnStyle(),
+                borderColor: "#F59E0B",
+                color: "#92400E",
+                background: "#FFFBEB",
+                opacity: reprocessing ? 0.6 : 1,
+                cursor: reprocessing ? "not-allowed" : "pointer",
+              }}
+              disabled={reprocessing}
+              onClick={handleReprocess}
+            >
+              {reprocessing ? "กำลัง Reprocess..." : "Reprocess Failed (7 วัน)"}
+            </button>
           </div>
         </div>
+
+        {/* Reprocess result banner */}
+        {reprocessResult ? (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: "10px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              background: reprocessResult.ok ? "#F0FDF4" : "#FFF1F2",
+              border: `1px solid ${reprocessResult.ok ? "#86EFAC" : "#FECDD3"}`,
+              color: reprocessResult.ok ? "#166534" : "#9F1239",
+            }}
+          >
+            {reprocessResult.ok
+              ? `Reprocess เสร็จสิ้น: ${reprocessResult.total} รายการ — สำเร็จ ${reprocessResult.success}, ยังมีข้อผิดพลาด ${reprocessResult.failed}${reprocessResult.success > 0 ? " (กำลังโหลดใหม่...)" : ""}`
+              : `เกิดข้อผิดพลาด: ${reprocessResult.error}`}
+          </div>
+        ) : null}
 
         {/* Pagination — top */}
         <div style={{ marginBottom: 12 }}>{paginationBar}</div>
