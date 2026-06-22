@@ -1,4 +1,4 @@
-import { useLoaderData } from "react-router";
+import { useLoaderData, useRevalidator } from "react-router";
 import { useState, useMemo, useEffect } from "react";
 import db from "../db.server";
 
@@ -234,6 +234,7 @@ const btnStyle = (variant = "default") => ({
 
 export default function AppIndex() {
   const { submissions } = useLoaderData();
+  const revalidator = useRevalidator();
 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -326,9 +327,7 @@ export default function AppIndex() {
         if (!data.hasMore || data.batchSize === 0) break;
       }
 
-      if (totalSuccess > 0) {
-        setTimeout(() => window.location.reload(), 2000);
-      }
+      revalidator.revalidate();
     } catch (e) {
       setReprocessResult({ ok: false, error: String(e) });
     } finally {
@@ -507,7 +506,7 @@ export default function AppIndex() {
               ? `เกิดข้อผิดพลาด: ${reprocessResult.error}`
               : reprocessResult.inProgress
                 ? `⏳ กำลัง Reprocess... ${reprocessResult.processed}${reprocessResult.total ? `/${reprocessResult.total}` : ""} รายการ — สำเร็จ ${reprocessResult.success}, ข้อผิดพลาด ${reprocessResult.failed}`
-                : `✓ Reprocess เสร็จสิ้น: ${reprocessResult.total} รายการ — สำเร็จ ${reprocessResult.success}, ยังมีข้อผิดพลาด ${reprocessResult.failed}${reprocessResult.success > 0 ? " (กำลังโหลดใหม่...)" : ""}`}
+                : `✓ Reprocess เสร็จสิ้น: ${reprocessResult.total} รายการ — สำเร็จ ${reprocessResult.success}, ยังมีข้อผิดพลาด ${reprocessResult.failed}`}
           </div>
         ) : null}
 
