@@ -7,7 +7,6 @@ const PAGE_SIZE = 100;
 export async function loader() {
   const submissions = await db.tikTokUrl.findMany({
     orderBy: { createdAt: "desc" },
-    take: 500,
   });
   return { submissions };
 }
