@@ -92,11 +92,6 @@ async function getOrderData(admin, orderId) {
         id
         name
         note
-        customer {
-          displayName
-          firstName
-          lastName
-        }
         metafield(namespace: "custom", key: "link_submission") {
           id
           type
@@ -462,7 +457,6 @@ async function handleRequest(request) {
       let noteUpdated = false;
       let noteError = null;
       let resolvedOrderName = orderName;
-      let resolvedCustomerName = customerName;
 
       try {
         const admin = await getAdminClient(shop);
@@ -475,21 +469,6 @@ async function handleRequest(request) {
             where: { id: saved.id },
             data: { orderName: resolvedOrderName },
           });
-        }
-
-        // Backfill customerName from order's customer if not provided by the client
-        if (!resolvedCustomerName && order.customer) {
-          const { displayName, firstName, lastName } = order.customer;
-          resolvedCustomerName =
-            displayName ||
-            [firstName, lastName].filter(Boolean).join(" ") ||
-            null;
-          if (resolvedCustomerName) {
-            await db.tikTokUrl.update({
-              where: { id: saved.id },
-              data: { customerName: resolvedCustomerName },
-            });
-          }
         }
 
         try {
