@@ -334,6 +334,8 @@ export default function AppIndex() {
   const [reprocessResult, setReprocessResult] = useState(null);
   const [fixingNames, setFixingNames] = useState(false);
   const [fixNamesResult, setFixNamesResult] = useState(null);
+  const [fixingCustomerInfo, setFixingCustomerInfo] = useState(false);
+  const [fixCustomerInfoResult, setFixCustomerInfoResult] = useState(null);
 
   const activeFilterCount = [
     dateFrom,
@@ -511,6 +513,50 @@ export default function AppIndex() {
       setFixNamesResult({ ok: false, error: String(e) });
     } finally {
       setFixingNames(false);
+    }
+  }
+
+  async function handleFixCustomerInfo() {
+    setFixingCustomerInfo(true);
+    setFixCustomerInfoResult({ ok: true, inProgress: true, total: null, processed: 0, success: 0, failed: 0 });
+
+    let offset = 0;
+    let totalSuccess = 0;
+    let totalFailed = 0;
+    let grandTotal = null;
+
+    try {
+      while (true) {
+        const res = await fetch(`/api/fix-customer-info?offset=${offset}`, { method: "POST" });
+        const data = await res.json();
+
+        if (!data.ok) {
+          setFixCustomerInfoResult({ ok: false, error: data.error || "Unknown error" });
+          break;
+        }
+
+        grandTotal = data.total;
+        totalSuccess += data.success;
+        totalFailed += data.failed;
+        offset = data.nextOffset;
+
+        setFixCustomerInfoResult({
+          ok: true,
+          inProgress: data.hasMore,
+          total: grandTotal,
+          processed: offset,
+          success: totalSuccess,
+          failed: totalFailed,
+        });
+
+        if (!data.hasMore || data.batchSize === 0) break;
+      }
+
+      revalidator.revalidate();
+    } catch (e) {
+      setFixCustomerInfoResult({ ok: false, error: String(e) });
+    } finally {
+      setFixingCustomerInfo(false);
     }
   }
 
@@ -765,6 +811,20 @@ export default function AppIndex() {
             >
               {fixingNames ? "กำลัง Fix Order Names..." : "Fix Missing Order Names"}
             </button>
+            <button
+              style={{
+                ...btnStyle(),
+                borderColor: "#0EA5E9",
+                color: "#075985",
+                background: "#F0F9FF",
+                opacity: fixingCustomerInfo ? 0.6 : 1,
+                cursor: fixingCustomerInfo ? "not-allowed" : "pointer",
+              }}
+              disabled={fixingCustomerInfo}
+              onClick={handleFixCustomerInfo}
+            >
+              {fixingCustomerInfo ? "กำลัง Fix Customer Info..." : "Fix Missing Customer Info"}
+            </button>
           </div>
         </div>
 
@@ -807,6 +867,27 @@ export default function AppIndex() {
               : fixNamesResult.inProgress
                 ? `⏳ กำลัง Fix Order Names... ${fixNamesResult.processed}${fixNamesResult.total ? `/${fixNamesResult.total}` : ""} รายการ — อัปเดตแล้ว ${fixNamesResult.success}`
                 : `✓ Fix Order Names เสร็จสิ้น: อัปเดต ${fixNamesResult.success} รายการ, ไม่สำเร็จ ${fixNamesResult.failed}`}
+          </div>
+        ) : null}
+
+        {/* Fix customer info result banner */}
+        {fixCustomerInfoResult ? (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: "10px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              background: fixCustomerInfoResult.ok ? (fixCustomerInfoResult.inProgress ? "#F0F9FF" : "#F0FDF4") : "#FFF1F2",
+              border: `1px solid ${fixCustomerInfoResult.ok ? (fixCustomerInfoResult.inProgress ? "#7DD3FC" : "#86EFAC") : "#FECDD3"}`,
+              color: fixCustomerInfoResult.ok ? (fixCustomerInfoResult.inProgress ? "#075985" : "#166534") : "#9F1239",
+            }}
+          >
+            {!fixCustomerInfoResult.ok
+              ? `เกิดข้อผิดพลาด: ${fixCustomerInfoResult.error}`
+              : fixCustomerInfoResult.inProgress
+                ? `⏳ กำลัง Fix Customer Info... ${fixCustomerInfoResult.processed}${fixCustomerInfoResult.total ? `/${fixCustomerInfoResult.total}` : ""} รายการ — อัปเดตแล้ว ${fixCustomerInfoResult.success}`
+                : `✓ Fix Customer Info เสร็จสิ้น: อัปเดต ${fixCustomerInfoResult.success} รายการ, ไม่สำเร็จ ${fixCustomerInfoResult.failed}`}
           </div>
         ) : null}
 
