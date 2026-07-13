@@ -92,6 +92,12 @@ async function getOrderData(admin, orderId) {
         id
         name
         note
+        customer {
+          email
+          displayName
+          firstName
+          lastName
+        }
         metafield(namespace: "custom", key: "link_submission") {
           id
           type
@@ -397,29 +403,17 @@ async function handleRequest(request) {
         );
       }
 
-      // Only block if a SUCCESSFUL submission already exists for this URL
-      const duplicate = await db.tikTokUrl.findFirst({
-        where: { url: cleanUrl, metafieldUpdated: true },
-      });
-
-      if (duplicate) {
-        return jsonResponse(
-          {
-            ok: false,
-            error: "ลิงก์นี้เคยถูกส่งไปแล้ว ไม่สามารถส่งลิงก์ซ้ำได้",
-          },
-          { status: 409 },
-        );
-      }
-
-      // Resolve TikTok video info and validate post is within 30 days
+      // Resolve TikTok video info (short links resolve to a canonical video ID)
+      // and validate post is within 30 days
       let creatorHandle = null;
       let postDate = null;
+      let videoId = null;
 
       if (isTikTokUrl(cleanUrl)) {
         const videoInfo = await resolveTikTokVideoInfo(cleanUrl);
         if (videoInfo) {
           creatorHandle = videoInfo.creatorHandle;
+          videoId = videoInfo.videoId;
           const estimated = estimatePostDateFromVideoId(videoInfo.videoId);
           if (estimated) {
             postDate = estimated;
@@ -438,6 +432,28 @@ async function handleRequest(request) {
         }
       }
 
+      // Only block if a SUCCESSFUL submission already exists for this video
+      // (TikTok short links generate a different URL every time you copy them,
+      // so dedupe by the resolved video ID; fall back to exact URL match for
+      // non-TikTok links or TikTok links whose video ID couldn't be resolved)
+      const duplicate = videoId
+        ? await db.tikTokUrl.findFirst({
+            where: { videoId, metafieldUpdated: true },
+          })
+        : await db.tikTokUrl.findFirst({
+            where: { url: cleanUrl, metafieldUpdated: true },
+          });
+
+      if (duplicate) {
+        return jsonResponse(
+          {
+            ok: false,
+            error: "ลิงก์นี้เคยถูกส่งไปแล้ว ไม่สามารถส่งลิงก์ซ้ำได้",
+          },
+          { status: 409 },
+        );
+      }
+
       const saved = await db.tikTokUrl.create({
         data: {
           shop,
@@ -446,6 +462,7 @@ async function handleRequest(request) {
           customerName,
           customerEmail,
           url: cleanUrl,
+          videoId,
           creatorHandle,
           postDate,
         },
@@ -458,6 +475,8 @@ async function handleRequest(request) {
       let noteUpdated = false;
       let noteError = null;
       let resolvedOrderName = orderName;
+      let resolvedCustomerName = customerName;
+      let resolvedCustomerEmail = customerEmail;
 
       try {
         const admin = await getAdminClient(shop);
@@ -472,11 +491,36 @@ async function handleRequest(request) {
           });
         }
 
+        // Backfill customer name/email from the order's customer if the
+        // client couldn't provide them (e.g. guest/unauthenticated checkout)
+        const orderCustomerName =
+          order.customer?.displayName ||
+          [order.customer?.firstName, order.customer?.lastName]
+            .filter(Boolean)
+            .join(" ") ||
+          null;
+        const orderCustomerEmail = order.customer?.email || null;
+
+        if (!resolvedCustomerName || !resolvedCustomerEmail) {
+          resolvedCustomerName = resolvedCustomerName || orderCustomerName;
+          resolvedCustomerEmail = resolvedCustomerEmail || orderCustomerEmail;
+
+          if (resolvedCustomerName || resolvedCustomerEmail) {
+            await db.tikTokUrl.update({
+              where: { id: saved.id },
+              data: {
+                customerName: resolvedCustomerName,
+                customerEmail: resolvedCustomerEmail,
+              },
+            });
+          }
+        }
+
         try {
           await updateOrderMetafields(order, admin, {
             url: saved.url,
             savedAt: savedAtGmt7,
-            customerEmail,
+            customerEmail: resolvedCustomerEmail,
             orderId,
             orderName: resolvedOrderName,
             creatorHandle,
@@ -517,8 +561,8 @@ async function handleRequest(request) {
         shop,
         orderId,
         orderName: resolvedOrderName,
-        customerName,
-        customerEmail,
+        customerName: resolvedCustomerName,
+        customerEmail: resolvedCustomerEmail,
         url: saved.url,
         createdAt: savedAtGmt7,
         metafieldUpdated,
@@ -541,6 +585,9 @@ async function handleRequest(request) {
         ok: true,
         saved: {
           ...saved,
+          customerName: resolvedCustomerName,
+          customerEmail: resolvedCustomerEmail,
+          orderName: resolvedOrderName,
           savedAt: savedAtGmt7,
           metafieldUpdated,
           metafieldError,

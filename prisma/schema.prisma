@@ -35,6 +35,7 @@ model TikTokUrl {
   customerName     String?
   customerEmail    String?
   url              String
+  videoId          String?
   creatorHandle    String?
   postDate         DateTime?
   createdAt        DateTime @default(now())
@@ -47,4 +48,5 @@ model TikTokUrl {
 
   @@index([shop, orderId])
   @@index([createdAt])
+  @@index([videoId])
 }

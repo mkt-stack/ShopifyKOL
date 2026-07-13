@@ -1,14 +1,83 @@
 import { useLoaderData, useRevalidator } from "react-router";
 import { useState, useMemo, useEffect } from "react";
 import db from "../db.server";
+import { authenticate } from "../shopify.server";
 
 const PAGE_SIZE = 100;
 
-export async function loader() {
+function toOrderGid(orderId) {
+  if (typeof orderId === "string" && orderId.startsWith("gid://")) {
+    return orderId;
+  }
+  return `gid://shopify/Order/${orderId}`;
+}
+
+function chunkArray(items, size) {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+// Fetches each order's customer "line_uid" metafield live from Shopify, for
+// filtering only — not persisted to the TikTokUrl row.
+async function fetchLineUidByOrderId(admin, orderIds) {
+  const lineUidByOrderId = {};
+  const chunks = chunkArray(orderIds, 100);
+
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      try {
+        const resp = await admin.graphql(
+          `#graphql
+          query GetOrdersLineUid($ids: [ID!]!) {
+            nodes(ids: $ids) {
+              ... on Order {
+                id
+                customer {
+                  metafield(namespace: "custom", key: "line_uid") {
+                    value
+                  }
+                }
+              }
+            }
+          }`,
+          { variables: { ids: chunk.map(toOrderGid) } },
+        );
+        const json = await resp.json();
+        const nodes = json?.data?.nodes || [];
+        for (let i = 0; i < nodes.length; i++) {
+          const node = nodes[i];
+          if (node?.customer?.metafield?.value) {
+            lineUidByOrderId[chunk[i]] = node.customer.metafield.value;
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch line_uid for order chunk:", error);
+      }
+    }),
+  );
+
+  return lineUidByOrderId;
+}
+
+export async function loader({ request }) {
+  const { admin } = await authenticate.admin(request);
+
   const submissions = await db.tikTokUrl.findMany({
     orderBy: { createdAt: "desc" },
   });
-  return { submissions };
+
+  const uniqueOrderIds = [...new Set(submissions.map((s) => s.orderId))];
+  const lineUidByOrderId = await fetchLineUidByOrderId(admin, uniqueOrderIds);
+
+  const withLineUid = submissions.map((item) => ({
+    ...item,
+    lineUid: lineUidByOrderId[item.orderId] || null,
+  }));
+
+  return { submissions: withLineUid };
 }
 
 function formatBangkokDateTime(dateValue) {
@@ -32,6 +101,21 @@ function toBangkokDate(dateValue) {
   } catch {
     return "";
   }
+}
+
+function getPlatform(url) {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host === "tiktok.com" || host.endsWith(".tiktok.com") || host === "vt.tiktok.com") {
+      return "tiktok";
+    }
+    if (host === "shp.ee" || host.endsWith(".shp.ee") || host === "shopee.co.th" || host.endsWith(".shopee.co.th")) {
+      return "shopee";
+    }
+  } catch {
+    // ignore
+  }
+  return "other";
 }
 
 function StatusBadge({ ok }) {
@@ -241,14 +325,27 @@ export default function AppIndex() {
   const [postDateFrom, setPostDateFrom] = useState("");
   const [postDateTo, setPostDateTo] = useState("");
   const [creatorHandleFilter, setCreatorHandleFilter] = useState("");
+  const [customerEmailFilter, setCustomerEmailFilter] = useState("");
+  const [lineUidFilter, setLineUidFilter] = useState("");
+  const [platformFilter, setPlatformFilter] = useState("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState(null);
   const [fixingNames, setFixingNames] = useState(false);
   const [fixNamesResult, setFixNamesResult] = useState(null);
 
-  const hasFilter =
-    dateFrom || dateTo || postDateFrom || postDateTo || creatorHandleFilter;
+  const activeFilterCount = [
+    dateFrom,
+    dateTo,
+    postDateFrom,
+    postDateTo,
+    creatorHandleFilter,
+    customerEmailFilter,
+    lineUidFilter,
+    platformFilter !== "all" ? platformFilter : "",
+  ].filter(Boolean).length;
+  const hasFilter = activeFilterCount > 0;
 
   const filtered = useMemo(() => {
     return submissions.filter((item) => {
@@ -270,14 +367,47 @@ export default function AppIndex() {
         if (!handle.includes(query)) return false;
       }
 
+      if (customerEmailFilter) {
+        const email = (item.customerEmail || "").toLowerCase();
+        if (!email.includes(customerEmailFilter.toLowerCase())) return false;
+      }
+
+      if (lineUidFilter) {
+        const lineUid = (item.lineUid || "").toLowerCase();
+        if (!lineUid.includes(lineUidFilter.toLowerCase())) return false;
+      }
+
+      if (platformFilter !== "all") {
+        if (getPlatform(item.url) !== platformFilter) return false;
+      }
+
       return true;
     });
-  }, [submissions, dateFrom, dateTo, postDateFrom, postDateTo, creatorHandleFilter]);
+  }, [
+    submissions,
+    dateFrom,
+    dateTo,
+    postDateFrom,
+    postDateTo,
+    creatorHandleFilter,
+    customerEmailFilter,
+    lineUidFilter,
+    platformFilter,
+  ]);
 
   // Reset to page 1 whenever filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [dateFrom, dateTo, postDateFrom, postDateTo, creatorHandleFilter]);
+  }, [
+    dateFrom,
+    dateTo,
+    postDateFrom,
+    postDateTo,
+    creatorHandleFilter,
+    customerEmailFilter,
+    lineUidFilter,
+    platformFilter,
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const paginated = filtered.slice(
@@ -291,6 +421,9 @@ export default function AppIndex() {
     setPostDateFrom("");
     setPostDateTo("");
     setCreatorHandleFilter("");
+    setCustomerEmailFilter("");
+    setLineUidFilter("");
+    setPlatformFilter("all");
   }
 
   async function handleReprocess() {
@@ -399,73 +532,159 @@ export default function AppIndex() {
           background: "white",
           border: "1px solid #E5E7EB",
           borderRadius: 12,
-          padding: 20,
+          padding: filtersOpen ? 20 : "12px 20px",
           marginBottom: 16,
         }}
       >
-        <h3 style={{ margin: "0 0 14px", fontSize: 15 }}>ตัวกรอง</h3>
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-            gap: 12,
-            alignItems: "end",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
           }}
         >
-          <div>
-            <label style={labelStyle}>เวลาที่ส่ง (จาก)</label>
-            <input
-              type="date"
-              style={inputStyle}
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>เวลาที่ส่ง (ถึง)</label>
-            <input
-              type="date"
-              style={inputStyle}
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>Post Date (จาก)</label>
-            <input
-              type="date"
-              style={inputStyle}
-              value={postDateFrom}
-              onChange={(e) => setPostDateFrom(e.target.value)}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>Post Date (ถึง)</label>
-            <input
-              type="date"
-              style={inputStyle}
-              value={postDateTo}
-              onChange={(e) => setPostDateTo(e.target.value)}
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>Creator Handle</label>
-            <input
-              type="text"
-              style={inputStyle}
-              placeholder="@username"
-              value={creatorHandleFilter}
-              onChange={(e) => setCreatorHandleFilter(e.target.value)}
-            />
-          </div>
+          <button
+            onClick={() => setFiltersOpen((v) => !v)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              fontSize: 15,
+              fontWeight: 600,
+              color: "#111827",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                transform: filtersOpen ? "rotate(90deg)" : "rotate(0deg)",
+                transition: "transform 0.15s ease",
+                fontSize: 12,
+                color: "#6B7280",
+              }}
+            >
+              ▶
+            </span>
+            ตัวกรอง
+            {activeFilterCount > 0 ? (
+              <span
+                style={{
+                  display: "inline-block",
+                  background: "#2563EB",
+                  color: "white",
+                  borderRadius: 999,
+                  padding: "1px 8px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {activeFilterCount}
+              </span>
+            ) : null}
+          </button>
+
           {hasFilter ? (
-            <div style={{ paddingTop: 18 }}>
-              <button style={btnStyle("danger")} onClick={clearFilters}>
-                ล้างตัวกรอง
-              </button>
-            </div>
+            <button style={btnStyle("danger")} onClick={clearFilters}>
+              ล้างตัวกรอง
+            </button>
           ) : null}
         </div>
+
+        {filtersOpen ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+              gap: 12,
+              alignItems: "end",
+              marginTop: 16,
+            }}
+          >
+            <div>
+              <label style={labelStyle}>เวลาที่ส่ง (จาก)</label>
+              <input
+                type="date"
+                style={inputStyle}
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>เวลาที่ส่ง (ถึง)</label>
+              <input
+                type="date"
+                style={inputStyle}
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Post Date (จาก)</label>
+              <input
+                type="date"
+                style={inputStyle}
+                value={postDateFrom}
+                onChange={(e) => setPostDateFrom(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Post Date (ถึง)</label>
+              <input
+                type="date"
+                style={inputStyle}
+                value={postDateTo}
+                onChange={(e) => setPostDateTo(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Creator Handle</label>
+              <input
+                type="text"
+                style={inputStyle}
+                placeholder="@username"
+                value={creatorHandleFilter}
+                onChange={(e) => setCreatorHandleFilter(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Customer Email</label>
+              <input
+                type="text"
+                style={inputStyle}
+                placeholder="customer@email.com"
+                value={customerEmailFilter}
+                onChange={(e) => setCustomerEmailFilter(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Line UID</label>
+              <input
+                type="text"
+                style={inputStyle}
+                placeholder="Line UID"
+                value={lineUidFilter}
+                onChange={(e) => setLineUidFilter(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Platform</label>
+              <select
+                style={inputStyle}
+                value={platformFilter}
+                onChange={(e) => setPlatformFilter(e.target.value)}
+              >
+                <option value="all">ทั้งหมด</option>
+                <option value="tiktok">TikTok</option>
+                <option value="shopee">Shopee</option>
+              </select>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {/* Table panel */}
