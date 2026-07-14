@@ -325,6 +325,7 @@ export default function AppIndex() {
   const [postDateFrom, setPostDateFrom] = useState("");
   const [postDateTo, setPostDateTo] = useState("");
   const [creatorHandleFilter, setCreatorHandleFilter] = useState("");
+  const [orderNameFilter, setOrderNameFilter] = useState("");
   const [customerEmailFilter, setCustomerEmailFilter] = useState("");
   const [lineUidFilter, setLineUidFilter] = useState("");
   const [platformFilter, setPlatformFilter] = useState("all");
@@ -343,6 +344,7 @@ export default function AppIndex() {
     postDateFrom,
     postDateTo,
     creatorHandleFilter,
+    orderNameFilter,
     customerEmailFilter,
     lineUidFilter,
     platformFilter !== "all" ? platformFilter : "",
@@ -369,6 +371,12 @@ export default function AppIndex() {
         if (!handle.includes(query)) return false;
       }
 
+      if (orderNameFilter) {
+        const orderName = (item.orderName || "").toLowerCase();
+        const query = orderNameFilter.toLowerCase().replace(/^#/, "");
+        if (!orderName.replace(/^#/, "").includes(query)) return false;
+      }
+
       if (customerEmailFilter) {
         const email = (item.customerEmail || "").toLowerCase();
         if (!email.includes(customerEmailFilter.toLowerCase())) return false;
@@ -392,6 +400,7 @@ export default function AppIndex() {
     postDateFrom,
     postDateTo,
     creatorHandleFilter,
+    orderNameFilter,
     customerEmailFilter,
     lineUidFilter,
     platformFilter,
@@ -406,6 +415,7 @@ export default function AppIndex() {
     postDateFrom,
     postDateTo,
     creatorHandleFilter,
+    orderNameFilter,
     customerEmailFilter,
     lineUidFilter,
     platformFilter,
@@ -423,6 +433,7 @@ export default function AppIndex() {
     setPostDateFrom("");
     setPostDateTo("");
     setCreatorHandleFilter("");
+    setOrderNameFilter("");
     setCustomerEmailFilter("");
     setLineUidFilter("");
     setPlatformFilter("all");
@@ -695,6 +706,16 @@ export default function AppIndex() {
                 placeholder="@username"
                 value={creatorHandleFilter}
                 onChange={(e) => setCreatorHandleFilter(e.target.value)}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Order Name</label>
+              <input
+                type="text"
+                style={inputStyle}
+                placeholder="#1234"
+                value={orderNameFilter}
+                onChange={(e) => setOrderNameFilter(e.target.value)}
               />
             </div>
             <div>
