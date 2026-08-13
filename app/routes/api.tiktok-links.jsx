@@ -457,15 +457,24 @@ async function handleRequest(request) {
       }
 
       // Cap the number of successfully accepted links per order
-      const successfulCount = await db.tikTokUrl.count({
-        where: { shop, orderId, metafieldUpdated: true },
-      });
+      // (an admin can raise this per-order via the Order Quota page)
+      const [successfulCount, latestQuotaAdjustment] = await Promise.all([
+        db.tikTokUrl.count({
+          where: { shop, orderId, metafieldUpdated: true },
+        }),
+        db.orderQuotaAdjustment.findFirst({
+          where: { shop, orderId },
+          orderBy: { createdAt: "desc" },
+        }),
+      ]);
+      const effectiveMaxLinks =
+        latestQuotaAdjustment?.newTotalQuota ?? MAX_LINKS_PER_ORDER;
 
-      if (successfulCount >= MAX_LINKS_PER_ORDER) {
+      if (successfulCount >= effectiveMaxLinks) {
         return jsonResponse(
           {
             ok: false,
-            error: `คุณส่งลิงก์ครบ ${MAX_LINKS_PER_ORDER} ลิงก์สำหรับออเดอร์นี้แล้ว ไม่สามารถส่งเพิ่มได้`,
+            error: `คุณส่งลิงก์ครบ ${effectiveMaxLinks} ลิงก์สำหรับออเดอร์นี้แล้ว ไม่สามารถส่งเพิ่มได้`,
           },
           { status: 409 },
         );
