@@ -1,0 +1,65 @@
+# Learn more about Flow trigger extensions at
+# https://shopify.dev/docs/apps/build/flow/triggers/reference
+#
+# `uid` is intentionally omitted here — Shopify CLI assigns it automatically
+# the first time you run `shopify app dev` or `shopify app deploy`.
+
+[[extensions]]
+name = "Video link submitted"
+handle = "video-link-submitted"
+type = "flow_trigger"
+description = "Fires when a customer's TikTok/Shopee video link is successfully saved to an order."
+
+[settings]
+  [[settings.fields]]
+  type = "customer_reference"
+
+  [[settings.fields]]
+  type = "order_reference"
+
+  [[settings.fields]]
+  type = "product_reference"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "order_name"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "customer_name"
+
+  [[settings.fields]]
+  type = "email"
+  key = "customer_email"
+
+  [[settings.fields]]
+  type = "url"
+  key = "video_url"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "platform"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "creator_handle"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "post_date"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "submission_id"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "submitted_at"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "product_titles"
+
+  [[settings.fields]]
+  type = "number_decimal"
+  key = "line_item_count"

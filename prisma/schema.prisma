@@ -46,6 +46,9 @@ model TikTokUrl {
   noteUpdated      Boolean  @default(false)
   noteError        String?
 
+  flowTriggered    Boolean  @default(false)
+  flowTriggerError String?
+
   @@index([shop, orderId])
   @@index([createdAt])
   @@index([videoId])

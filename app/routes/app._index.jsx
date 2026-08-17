@@ -254,6 +254,7 @@ function exportToCSV(data, filename) {
     "URL",
     "Metafield",
     "Note",
+    "Flow",
     "Error",
   ];
   const rows = data.map((item) => [
@@ -265,7 +266,8 @@ function exportToCSV(data, filename) {
     item.url,
     item.metafieldUpdated ? "Success" : "Failed",
     item.noteUpdated ? "Success" : "Failed",
-    item.metafieldError || item.noteError || "",
+    item.flowTriggered ? "Success" : "Failed",
+    item.metafieldError || item.noteError || item.flowTriggerError || "",
   ]);
 
   const csv = [headers, ...rows]
@@ -935,13 +937,14 @@ export default function AppIndex() {
                 <th style={{ padding: "12px 8px" }}>URL</th>
                 <th style={{ padding: "12px 8px" }}>Metafield</th>
                 <th style={{ padding: "12px 8px" }}>Note</th>
+                <th style={{ padding: "12px 8px" }}>Flow</th>
                 <th style={{ padding: "12px 8px" }}>Error</th>
               </tr>
             </thead>
             <tbody>
               {paginated.map((item) => {
                 const combinedError =
-                  item.metafieldError || item.noteError || null;
+                  item.metafieldError || item.noteError || item.flowTriggerError || null;
                 return (
                   <tr
                     key={item.id}
@@ -979,6 +982,9 @@ export default function AppIndex() {
                       <StatusBadge ok={item.noteUpdated} />
                     </td>
                     <td style={{ padding: "12px 8px" }}>
+                      <StatusBadge ok={item.flowTriggered} />
+                    </td>
+                    <td style={{ padding: "12px 8px" }}>
                       <ErrorText text={combinedError} />
                     </td>
                   </tr>
@@ -987,7 +993,7 @@ export default function AppIndex() {
               {paginated.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     style={{
                       padding: "32px 8px",
                       textAlign: "center",

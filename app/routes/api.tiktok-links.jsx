@@ -1,30 +1,15 @@
 import db from "../db.server";
-import { unauthenticated } from "../shopify.server";
+import {
+  toGmt7IsoString,
+  getAdminClient,
+  getOrderData,
+  updateOrderMetafields,
+  updateOrderNote,
+  buildFlowTriggerPayload,
+  triggerLinkSubmissionFlow,
+} from "../lib/tiktok-submission.server";
 
 const MAX_LINKS_PER_ORDER = 10;
-
-function toOrderGid(orderId) {
-  if (typeof orderId === "string" && orderId.startsWith("gid://")) {
-    return orderId;
-  }
-
-  return `gid://shopify/Order/${orderId}`;
-}
-
-function toGmt7IsoString(dateInput = new Date()) {
-  const date = new Date(dateInput);
-  const offsetMs = 7 * 60 * 60 * 1000;
-  const gmt7 = new Date(date.getTime() + offsetMs);
-
-  const year = gmt7.getUTCFullYear();
-  const month = String(gmt7.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(gmt7.getUTCDate()).padStart(2, "0");
-  const hours = String(gmt7.getUTCHours()).padStart(2, "0");
-  const minutes = String(gmt7.getUTCMinutes()).padStart(2, "0");
-  const seconds = String(gmt7.getUTCSeconds()).padStart(2, "0");
-
-  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+07:00`;
-}
 
 function jsonResponse(data, init = {}) {
   const headers = new Headers(init.headers || {});
@@ -59,201 +44,6 @@ function isValidTikTokOrShopeeUrl(value) {
   } catch {
     return false;
   }
-}
-
-function buildLatestSubmissionNote(existingNote, latestTimestamp) {
-  const marker = "Latest link submitted at (GMT+7):";
-  const newLine = `${marker} ${latestTimestamp}`;
-
-  if (!existingNote || !existingNote.trim()) {
-    return newLine;
-  }
-
-  const lines = existingNote.split("\n");
-  const filtered = lines.filter((line) => !line.trim().startsWith(marker));
-
-  return [...filtered, newLine].join("\n").trim();
-}
-
-async function getAdminClient(shop) {
-  const auth = await unauthenticated.admin(shop);
-
-  if (!auth?.admin) {
-    throw new Error(`Could not create admin client for shop: ${shop}`);
-  }
-
-  return auth.admin;
-}
-
-async function getOrderData(admin, orderId) {
-  const orderGid = toOrderGid(orderId);
-
-  const query = `
-    query GetOrderData($id: ID!) {
-      order(id: $id) {
-        id
-        name
-        note
-        customer {
-          email
-          displayName
-          firstName
-          lastName
-        }
-        metafield(namespace: "custom", key: "link_submission") {
-          id
-          type
-          value
-          compareDigest
-        }
-        lastSubmissionTimestamp: metafield(namespace: "custom", key: "last_submission_timestamp") {
-          id
-          type
-          value
-          compareDigest
-        }
-      }
-    }
-  `;
-
-  const resp = await admin.graphql(query, {
-    variables: { id: orderGid },
-  });
-
-  const json = await resp.json();
-
-  if (json.errors?.length) {
-    throw new Error(`Order query failed: ${JSON.stringify(json.errors)}`);
-  }
-
-  const order = json?.data?.order;
-
-  if (!order) {
-    throw new Error(`Order not found for ${orderGid}`);
-  }
-
-  return order;
-}
-
-async function updateOrderMetafields(order, admin, submission) {
-  let currentSubmissions = [];
-
-  if (order.metafield?.value) {
-    try {
-      const parsed = JSON.parse(order.metafield.value);
-      currentSubmissions = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      currentSubmissions = [];
-    }
-  }
-
-  currentSubmissions.push(submission);
-
-  // keep latest 10
-  if (currentSubmissions.length > 10) {
-    currentSubmissions = currentSubmissions.slice(-10);
-  }
-
-  const metafields = [
-    {
-      ownerId: order.id,
-      namespace: "custom",
-      key: "link_submission",
-      type: "json",
-      value: JSON.stringify(currentSubmissions),
-      ...(order.metafield?.compareDigest
-        ? { compareDigest: order.metafield.compareDigest }
-        : {}),
-    },
-    {
-      ownerId: order.id,
-      namespace: "custom",
-      key: "last_submission_timestamp",
-      type: "date_time",
-      value: submission.savedAt,
-      ...(order.lastSubmissionTimestamp?.compareDigest
-        ? { compareDigest: order.lastSubmissionTimestamp.compareDigest }
-        : {}),
-    },
-  ];
-
-  const mutation = `
-    mutation SetOrderMetafields($metafields: [MetafieldsSetInput!]!) {
-      metafieldsSet(metafields: $metafields) {
-        metafields {
-          id
-          namespace
-          key
-          type
-          value
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }
-  `;
-
-  const resp = await admin.graphql(mutation, {
-    variables: { metafields },
-  });
-
-  const json = await resp.json();
-
-  if (json.errors?.length) {
-    throw new Error(`metafieldsSet failed: ${JSON.stringify(json.errors)}`);
-  }
-
-  const userErrors = json?.data?.metafieldsSet?.userErrors || [];
-  if (userErrors.length > 0) {
-    throw new Error(
-      `metafieldsSet userErrors: ${JSON.stringify(userErrors)}`,
-    );
-  }
-
-  return json?.data?.metafieldsSet?.metafields ?? [];
-}
-
-async function updateOrderNote(order, admin, latestTimestamp) {
-  const noteText = buildLatestSubmissionNote(order.note, latestTimestamp);
-
-  const mutation = `
-    mutation UpdateOrderNote($input: OrderInput!) {
-      orderUpdate(input: $input) {
-        order {
-          id
-          note
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }
-  `;
-
-  const resp = await admin.graphql(mutation, {
-    variables: {
-      input: {
-        id: order.id,
-        note: noteText,
-      },
-    },
-  });
-
-  const json = await resp.json();
-
-  if (json.errors?.length) {
-    throw new Error(`orderUpdate failed: ${JSON.stringify(json.errors)}`);
-  }
-
-  const userErrors = json?.data?.orderUpdate?.userErrors || [];
-  if (userErrors.length > 0) {
-    throw new Error(`orderUpdate userErrors: ${JSON.stringify(userErrors)}`);
-  }
-
-  return json?.data?.orderUpdate?.order?.note ?? null;
 }
 
 async function emitTikTokUrlSaved(payload) {
@@ -500,6 +290,8 @@ async function handleRequest(request) {
       let metafieldError = null;
       let noteUpdated = false;
       let noteError = null;
+      let flowTriggered = false;
+      let flowTriggerError = null;
       let resolvedOrderName = orderName;
       let resolvedCustomerName = customerName;
       let resolvedCustomerEmail = customerEmail;
@@ -558,6 +350,24 @@ async function handleRequest(request) {
           metafieldError = String(error);
         }
 
+        if (metafieldUpdated) {
+          try {
+            const flowPayload = buildFlowTriggerPayload({
+              order,
+              submission: saved,
+              resolvedOrderName,
+              resolvedCustomerName,
+              resolvedCustomerEmail,
+              savedAtGmt7,
+            });
+            await triggerLinkSubmissionFlow(admin, flowPayload);
+            flowTriggered = true;
+          } catch (error) {
+            console.error("Flow trigger failed:", error);
+            flowTriggerError = String(error);
+          }
+        }
+
         try {
           await updateOrderNote(order, admin, savedAtGmt7);
           noteUpdated = true;
@@ -579,6 +389,8 @@ async function handleRequest(request) {
           metafieldError,
           noteUpdated,
           noteError,
+          flowTriggered,
+          flowTriggerError,
         },
       });
 
@@ -595,6 +407,8 @@ async function handleRequest(request) {
         metafieldError,
         noteUpdated,
         noteError,
+        flowTriggered,
+        flowTriggerError,
       });
 
       const links = await db.tikTokUrl.findMany({
@@ -619,6 +433,8 @@ async function handleRequest(request) {
           metafieldError,
           noteUpdated,
           noteError,
+          flowTriggered,
+          flowTriggerError,
         },
         links,
       });
