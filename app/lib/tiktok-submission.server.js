@@ -253,9 +253,14 @@ export async function updateOrderNote(order, admin, latestTimestamp) {
 }
 
 // Builds the flat payload for the "video-link-submitted" Flow trigger.
-// Every key defined in extensions/video-link-flow-trigger/shopify.extension.toml
-// must be present here (Flow's docs are ambiguous about omitted keys, so we
-// always send all of them: `null` for missing reference ids, "" for missing text).
+// Custom field keys here must match extensions/video-link-flow-trigger/shopify.extension.toml
+// VERBATIM (Shopify requires each `key` there to be alphabetic-plus-spaces
+// only, and the payload key you send must be the exact same string — no
+// camelCase/snake_case). Reference fields (customer_id/order_id/product_id)
+// are the fixed Shopify-assigned payload keys for customer_reference/
+// order_reference/product_reference and are exempt from that naming rule.
+// Every field is always present: `null` for missing reference ids, "" for
+// missing text — Flow's docs are ambiguous about omitted keys.
 export function buildFlowTriggerPayload({
   order,
   submission,
@@ -278,17 +283,17 @@ export function buildFlowTriggerPayload({
     product_id: firstProduct?.legacyResourceId
       ? Number(firstProduct.legacyResourceId)
       : null,
-    order_name: resolvedOrderName || "",
-    customer_name: resolvedCustomerName || "",
-    customer_email: resolvedCustomerEmail || "",
-    video_url: submission.url || "",
-    platform: detectPlatform(submission.url),
-    creator_handle: submission.creatorHandle || "",
-    post_date: submission.postDate ? toGmt7IsoString(submission.postDate) : "",
-    submission_id: submission.id || "",
-    submitted_at: savedAtGmt7 || "",
-    product_titles: productTitles,
-    line_item_count: lineItems.length,
+    "Order name": resolvedOrderName || "",
+    "Customer name": resolvedCustomerName || "",
+    "Customer email": resolvedCustomerEmail || "",
+    "Video URL": submission.url || "",
+    Platform: detectPlatform(submission.url),
+    "Creator handle": submission.creatorHandle || "",
+    "Post date": submission.postDate ? toGmt7IsoString(submission.postDate) : "",
+    "Submission ID": submission.id || "",
+    "Submitted at": savedAtGmt7 || "",
+    "Product titles": productTitles,
+    "Line item count": lineItems.length,
   };
 }
 

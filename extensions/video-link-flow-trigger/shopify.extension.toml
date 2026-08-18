@@ -1,8 +1,11 @@
+uid = "9a7b8094-9051-63a8-6e4e-cf1d2c1558fabbdd8566"
 # Learn more about Flow trigger extensions at
 # https://shopify.dev/docs/apps/build/flow/triggers/reference
 #
-# `uid` is intentionally omitted here — Shopify CLI assigns it automatically
-# the first time you run `shopify app dev` or `shopify app deploy`.
+# Custom field `key` values must be alphabetic characters and spaces only
+# (no underscores/hyphens/digits) — Shopify title-cases these for the JSON
+# payload key you send from the app (see buildFlowTriggerPayload in
+# app/lib/tiktok-submission.server.js, which must match verbatim).
 
 [[extensions]]
 name = "Video link submitted"
@@ -22,44 +25,44 @@ description = "Fires when a customer's TikTok/Shopee video link is successfully 
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "order_name"
+  key = "Order name"
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "customer_name"
+  key = "Customer name"
 
   [[settings.fields]]
   type = "email"
-  key = "customer_email"
+  key = "Customer email"
 
   [[settings.fields]]
   type = "url"
-  key = "video_url"
+  key = "Video URL"
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "platform"
+  key = "Platform"
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "creator_handle"
+  key = "Creator handle"
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "post_date"
+  key = "Post date"
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "submission_id"
+  key = "Submission ID"
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "submitted_at"
+  key = "Submitted at"
 
   [[settings.fields]]
   type = "single_line_text_field"
-  key = "product_titles"
+  key = "Product titles"
 
   [[settings.fields]]
   type = "number_decimal"
-  key = "line_item_count"
+  key = "Line item count"
