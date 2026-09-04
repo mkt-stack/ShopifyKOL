@@ -22,6 +22,7 @@ module = "./src/OrderActionModal.jsx"
 [[extensions.targeting]]
 target = "customer-account.profile.block.render"
 module = "./src/AffiliateProfileBlock.jsx"
+default_placement = "PROFILE1"
 
 [extensions.capabilities]
 network_access = true

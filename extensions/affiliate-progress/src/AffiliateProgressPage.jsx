@@ -54,20 +54,37 @@ function formatCreditEarned(totalsByCurrency) {
 }
 
 const PIPELINE_TILES = [
-  {key: 'completed', label: 'Sample completed'},
-  {key: 'inTransit', label: 'Sample in transit'},
-  {key: 'pendingSubmission', label: 'Sample pending submission'},
-  {key: 'submittedVideo', label: 'Sample with submitted video'},
+  {key: 'completed', label: 'Sample completed', badge: 'Placed', tone: 'neutral'},
+  {key: 'inTransit', label: 'Sample in transit', badge: 'Shipped', tone: 'info'},
+  {key: 'pendingSubmission', label: 'Sample pending submission', badge: 'Received', tone: 'warning'},
+  {key: 'submittedVideo', label: 'Sample with submitted video', badge: 'Submitted', tone: 'success'},
 ];
 
-function BigNumber({label, value}) {
+// Card-style tile using the Polaris section component, which gives the
+// rounded-corner / elevated-surface look natively — no manual box-shadow
+// prop exists on this platform's web components by design.
+function StatCard({label, value}) {
   return (
-    <s-box padding="base" border="base" border-radius="base">
-      <s-stack direction="block" gap="tight">
-        <s-text>{label}</s-text>
+    <s-section padding="base">
+      <s-stack direction="block" gap="small-200">
+        <s-text color="subdued">{label}</s-text>
         <s-heading>{value}</s-heading>
       </s-stack>
-    </s-box>
+    </s-section>
+  );
+}
+
+function PipelineCard({label, value, badge, tone}) {
+  return (
+    <s-section padding="base">
+      <s-stack direction="block" gap="small-200">
+        <s-stack direction="inline" gap="small-200" alignItems="center">
+          <s-text color="subdued">{label}</s-text>
+          <s-badge tone={tone}>{badge}</s-badge>
+        </s-stack>
+        <s-heading>{value}</s-heading>
+      </s-stack>
+    </s-section>
   );
 }
 
@@ -121,49 +138,59 @@ function AffiliateProgressPage() {
 
   return (
     <s-page heading="ความคืบหน้า Affiliate ของฉัน">
-      <s-grid gridTemplateColumns="minmax(auto, 640px)" justifyContent="center">
-        <s-stack direction="block" gap="base">
+      <s-grid gridTemplateColumns="minmax(auto, 760px)" justifyContent="center">
+        <s-stack direction="block" gap="large">
           {loading ? (
-            <s-text>กำลังโหลดข้อมูล...</s-text>
+            <s-section padding="base">
+              <s-text>กำลังโหลดข้อมูล...</s-text>
+            </s-section>
           ) : statusText ? (
-            <s-box padding="tight" border="base" border-radius="base">
+            <s-section padding="base">
               <s-text>{statusText}</s-text>
-            </s-box>
+            </s-section>
           ) : (
             <>
-              <s-stack direction="inline" gap="base">
-                <BigNumber
-                  label="เครดิตที่ได้รับสะสม"
-                  value={formatCreditEarned(data?.totalCreditEarned)}
-                />
-                <BigNumber
-                  label="มูลค่าสินค้าตัวอย่างที่ขอทั้งหมด"
-                  value={formatMoney(data?.totalSampleValue, 'THB')}
-                />
+              <s-stack direction="block" gap="small-400">
+                <s-heading>ภาพรวม</s-heading>
+                <s-grid
+                  gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))"
+                  gap="base"
+                >
+                  <StatCard
+                    label="เครดิตที่ได้รับสะสม"
+                    value={formatCreditEarned(data?.totalCreditEarned)}
+                  />
+                  <StatCard
+                    label="มูลค่าสินค้าตัวอย่างที่ขอทั้งหมด"
+                    value={formatMoney(data?.totalSampleValue, 'THB')}
+                  />
+                  <StatCard
+                    label="จำนวนสินค้าตัวอย่างที่ได้รับ"
+                    value={String(data?.totalSampleQuantity ?? '-')}
+                  />
+                  <StatCard
+                    label="จำนวนวิดีโอที่ส่งแล้ว"
+                    value={String(data?.videosSubmitted ?? '-')}
+                  />
+                </s-grid>
               </s-stack>
 
-              <s-stack direction="inline" gap="base">
-                <BigNumber
-                  label="จำนวนสินค้าตัวอย่างที่ได้รับ"
-                  value={String(data?.totalSampleQuantity ?? '-')}
-                />
-                <BigNumber
-                  label="จำนวนวิดีโอที่ส่งแล้ว"
-                  value={String(data?.videosSubmitted ?? '-')}
-                />
-              </s-stack>
-
-              <s-heading>สถานะออเดอร์ในโปรแกรม</s-heading>
-
-              <s-stack direction="block" gap="tight">
-                {PIPELINE_TILES.map(({key, label}) => (
-                  <s-box key={key} padding="base" border="base" border-radius="base">
-                    <s-stack direction="inline" gap="base">
-                      <s-text>{label}</s-text>
-                      <s-text emphasis="bold">{data?.pipeline?.[key] ?? 0}</s-text>
-                    </s-stack>
-                  </s-box>
-                ))}
+              <s-stack direction="block" gap="small-400">
+                <s-heading>สถานะออเดอร์ในโปรแกรม</s-heading>
+                <s-grid
+                  gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))"
+                  gap="base"
+                >
+                  {PIPELINE_TILES.map(({key, label, badge, tone}) => (
+                    <PipelineCard
+                      key={key}
+                      label={label}
+                      value={data?.pipeline?.[key] ?? 0}
+                      badge={badge}
+                      tone={tone}
+                    />
+                  ))}
+                </s-grid>
               </s-stack>
             </>
           )}
