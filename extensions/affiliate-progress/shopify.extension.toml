@@ -1,0 +1,16 @@
+api_version = "2026-01"
+
+uid = "69d06c04-b811-ac99-62b0-a8275ffec358b7e31273"
+
+[[extensions]]
+name = "Affiliate Progress"
+handle = "affiliate-progress"
+type = "ui_extension"
+
+[[extensions.targeting]]
+target = "customer-account.page.render"
+module = "./src/AffiliateProgressPage.jsx"
+
+[extensions.capabilities]
+network_access = true
+api_access = true

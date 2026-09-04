@@ -19,6 +19,10 @@ module = "./src/OrderActionMenuItem.jsx"
 target = "customer-account.order.action.render"
 module = "./src/OrderActionModal.jsx"
 
+[[extensions.targeting]]
+target = "customer-account.profile.block.render"
+module = "./src/AffiliateProfileBlock.jsx"
+
 [extensions.capabilities]
 network_access = true
 api_access = true

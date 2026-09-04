@@ -1,0 +1,174 @@
+import '@shopify/ui-extensions/preact';
+import {render} from 'preact';
+import {useEffect, useState} from 'preact/hooks';
+
+const APP_URL = 'https://shopifykol-production.up.railway.app';
+const FALLBACK_SHOP = 'gqsizecrm.myshopify.com';
+
+function getShopDomain() {
+  try {
+    const shopValue = globalThis.shopify?.shop?.value;
+
+    const detected =
+      shopValue?.myshopifyDomain ||
+      shopValue?.domain ||
+      shopValue?.storeDomain ||
+      '';
+
+    if (detected && detected.endsWith('.myshopify.com')) {
+      return detected;
+    }
+
+    const hostname = globalThis.location?.hostname || '';
+    if (hostname && hostname.endsWith('.myshopify.com')) {
+      return hostname;
+    }
+
+    return FALLBACK_SHOP;
+  } catch {
+    return FALLBACK_SHOP;
+  }
+}
+
+function formatMoney(amount, currencyCode) {
+  if (amount === null || amount === undefined || !currencyCode) return '-';
+  try {
+    return new Intl.NumberFormat('th-TH', {
+      style: 'currency',
+      currency: currencyCode,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${amount} ${currencyCode}`;
+  }
+}
+
+function formatCreditEarned(totalsByCurrency) {
+  if (!totalsByCurrency) return '-';
+  const entries = Object.entries(totalsByCurrency);
+  if (entries.length === 0) return formatMoney(0, 'THB');
+  // Most accounts will only ever have one currency; join if more than one.
+  return entries
+    .map(([currency, amount]) => formatMoney(amount, currency))
+    .join(' + ');
+}
+
+const PIPELINE_TILES = [
+  {key: 'completed', label: 'Sample completed'},
+  {key: 'inTransit', label: 'Sample in transit'},
+  {key: 'pendingSubmission', label: 'Sample pending submission'},
+  {key: 'submittedVideo', label: 'Sample with submitted video'},
+];
+
+function BigNumber({label, value}) {
+  return (
+    <s-box padding="base" border="base" border-radius="base">
+      <s-stack direction="block" gap="tight">
+        <s-text>{label}</s-text>
+        <s-heading>{value}</s-heading>
+      </s-stack>
+    </s-box>
+  );
+}
+
+export default async () => {
+  render(<AffiliateProgressPage />, document.body);
+};
+
+function AffiliateProgressPage() {
+  const [data, setData] = useState(/** @type {any} */ (null));
+  const [loading, setLoading] = useState(true);
+  const [statusText, setStatusText] = useState('');
+
+  const customer = globalThis.shopify?.customer?.value;
+  const customerId = customer?.id || '';
+  const customerEmail = customer?.emailAddress || customer?.email || '';
+  const shop = getShopDomain();
+
+  useEffect(() => {
+    async function loadProgress() {
+      if ((!customerId && !customerEmail) || !shop) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams({shop});
+        if (customerId) params.set('customerId', customerId);
+        else params.set('customerEmail', customerEmail);
+
+        const response = await fetch(`${APP_URL}/api/affiliate-progress?${params}`, {
+          method: 'GET',
+          headers: {Accept: 'application/json'},
+        });
+        const result = await response.json();
+
+        if (result?.ok) {
+          setData(result);
+        } else {
+          setStatusText(result?.error || 'ไม่สามารถโหลดข้อมูลความคืบหน้าได้');
+        }
+      } catch (error) {
+        console.error('Load affiliate progress failed:', error);
+        setStatusText('ไม่สามารถโหลดข้อมูลความคืบหน้าได้');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadProgress();
+  }, [customerId, customerEmail, shop]);
+
+  return (
+    <s-page heading="ความคืบหน้า Affiliate ของฉัน">
+      <s-grid gridTemplateColumns="minmax(auto, 640px)" justifyContent="center">
+        <s-stack direction="block" gap="base">
+          {loading ? (
+            <s-text>กำลังโหลดข้อมูล...</s-text>
+          ) : statusText ? (
+            <s-box padding="tight" border="base" border-radius="base">
+              <s-text>{statusText}</s-text>
+            </s-box>
+          ) : (
+            <>
+              <s-stack direction="inline" gap="base">
+                <BigNumber
+                  label="เครดิตที่ได้รับสะสม"
+                  value={formatCreditEarned(data?.totalCreditEarned)}
+                />
+                <BigNumber
+                  label="มูลค่าสินค้าตัวอย่างที่ขอทั้งหมด"
+                  value={formatMoney(data?.totalSampleValue, 'THB')}
+                />
+              </s-stack>
+
+              <s-stack direction="inline" gap="base">
+                <BigNumber
+                  label="จำนวนสินค้าตัวอย่างที่ได้รับ"
+                  value={String(data?.totalSampleQuantity ?? '-')}
+                />
+                <BigNumber
+                  label="จำนวนวิดีโอที่ส่งแล้ว"
+                  value={String(data?.videosSubmitted ?? '-')}
+                />
+              </s-stack>
+
+              <s-heading>สถานะออเดอร์ในโปรแกรม</s-heading>
+
+              <s-stack direction="block" gap="tight">
+                {PIPELINE_TILES.map(({key, label}) => (
+                  <s-box key={key} padding="base" border="base" border-radius="base">
+                    <s-stack direction="inline" gap="base">
+                      <s-text>{label}</s-text>
+                      <s-text emphasis="bold">{data?.pipeline?.[key] ?? 0}</s-text>
+                    </s-stack>
+                  </s-box>
+                ))}
+              </s-stack>
+            </>
+          )}
+        </s-stack>
+      </s-grid>
+    </s-page>
+  );
+}
