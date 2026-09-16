@@ -54,6 +54,16 @@ model TikTokUrl {
   @@index([videoId])
 }
 
+model OrderTagState {
+  id        String   @id @default(cuid())
+  shop      String
+  orderId   String
+  tags      String
+  updatedAt DateTime @updatedAt
+
+  @@unique([shop, orderId])
+}
+
 model OrderQuotaAdjustment {
   id            String   @id @default(cuid())
   shop          String

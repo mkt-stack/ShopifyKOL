@@ -1,0 +1,57 @@
+uid = "2ab4d149-3e5f-4d87-acdb-80df451ab65cfc7df5cf"
+# Learn more about Flow trigger extensions at
+# https://shopify.dev/docs/apps/build/flow/triggers/reference
+#
+# Custom field `key` values must be alphabetic characters and spaces only
+# (no underscores/hyphens/digits) — Shopify title-cases these for the JSON
+# payload key you send from the app (see buildOrderTagAddedPayload in
+# app/lib/order-tag-flow.server.js, which must match verbatim).
+
+[[extensions]]
+name = "Order tag added"
+handle = "order-tag-added"
+type = "flow_trigger"
+description = "Fires when a tag is added to an order."
+
+[settings]
+  [[settings.fields]]
+  type = "order_reference"
+
+  [[settings.fields]]
+  type = "customer_reference"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Tag added"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Order name"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Customer name"
+
+  [[settings.fields]]
+  type = "email"
+  key = "Customer email"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "All tags"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Financial status"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Fulfillment status"
+
+  [[settings.fields]]
+  type = "number_decimal"
+  key = "Total price"
+
+  [[settings.fields]]
+  type = "single_line_text_field"
+  key = "Currency"
