@@ -56,6 +56,10 @@ description = "Fires when a customer's TikTok/Shopee video link is successfully 
   key = "Submission ID"
 
   [[settings.fields]]
+  type = "number_integer"
+  key = "Submission number"
+
+  [[settings.fields]]
   type = "single_line_text_field"
   key = "Submitted at"
 

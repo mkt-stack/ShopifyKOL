@@ -1,6 +1,24 @@
 import { unauthenticated } from "../shopify.server";
+import db from "../db.server";
 
 const FLOW_TRIGGER_HANDLE = "video-link-submitted";
+
+// Counts prior *successful* submissions for an order, so the caller can add 1
+// to get this submission's 1-based index (e.g. "3rd video submitted for this
+// order"). Scoped to metafieldUpdated: true so failed/duplicate attempts
+// don't inflate the count. `beforeDate` lets api.reprocess.jsx reconstruct
+// the same number a retried submission would have gotten originally, instead
+// of a number inflated by submissions that arrived after it.
+export async function countSuccessfulSubmissionsBefore(shop, orderId, beforeDate) {
+  return db.tikTokUrl.count({
+    where: {
+      shop,
+      orderId,
+      metafieldUpdated: true,
+      createdAt: { lt: beforeDate },
+    },
+  });
+}
 
 export function toOrderGid(orderId) {
   if (typeof orderId === "string" && orderId.startsWith("gid://")) {
@@ -268,6 +286,7 @@ export function buildFlowTriggerPayload({
   resolvedCustomerName,
   resolvedCustomerEmail,
   savedAtGmt7,
+  submissionNumber,
 }) {
   const lineItems = order?.lineItems?.nodes || [];
   const firstProduct = lineItems[0]?.product || null;
@@ -291,6 +310,7 @@ export function buildFlowTriggerPayload({
     "Creator handle": submission.creatorHandle || "",
     "Post date": submission.postDate ? toGmt7IsoString(submission.postDate) : "",
     "Submission ID": submission.id || "",
+    "Submission number": Number.isInteger(submissionNumber) ? submissionNumber : null,
     "Submitted at": savedAtGmt7 || "",
     "Product titles": productTitles,
     "Line item count": lineItems.length,

@@ -359,6 +359,7 @@ async function handleRequest(request) {
               resolvedCustomerName,
               resolvedCustomerEmail,
               savedAtGmt7,
+              submissionNumber: successfulCount + 1,
             });
             await triggerLinkSubmissionFlow(admin, flowPayload);
             flowTriggered = true;

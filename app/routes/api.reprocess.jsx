@@ -7,6 +7,7 @@ import {
   updateOrderNote,
   buildFlowTriggerPayload,
   triggerLinkSubmissionFlow,
+  countSuccessfulSubmissionsBefore,
 } from "../lib/tiktok-submission.server";
 
 // ── Action: processes one batch of entries ────────────────────────────────────
@@ -87,6 +88,12 @@ export async function action({ request }) {
 
       if (metafieldUpdated && !flowTriggered) {
         try {
+          const submissionNumber =
+            (await countSuccessfulSubmissionsBefore(
+              entry.shop,
+              entry.orderId,
+              entry.createdAt,
+            )) + 1;
           const flowPayload = buildFlowTriggerPayload({
             order,
             submission: entry,
@@ -94,6 +101,7 @@ export async function action({ request }) {
             resolvedCustomerName: entry.customerName,
             resolvedCustomerEmail: entry.customerEmail,
             savedAtGmt7,
+            submissionNumber,
           });
           await triggerLinkSubmissionFlow(admin, flowPayload);
           flowTriggered = true;
