@@ -18,6 +18,14 @@ function normalizeOrderName(value) {
   return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
 }
 
+function parseOrderNames(value) {
+  const parts = String(value || "")
+    .split(/[\s,]+/)
+    .map((part) => normalizeOrderName(part))
+    .filter(Boolean);
+  return [...new Set(parts)];
+}
+
 async function findOrderByName(admin, orderName) {
   const resp = await admin.graphql(
     `#graphql
@@ -59,45 +67,16 @@ export async function loader({ request }) {
   return { adjustments };
 }
 
-export async function action({ request }) {
-  const { admin, session } = await authenticate.admin(request);
-
-  const formData = await request.formData();
-  const rawOrderName = formData.get("orderName");
-  const rawExtraQuota = formData.get("extraQuota");
-  const adjustedBy = String(formData.get("adjustedBy") || "").trim();
-
-  const orderName = normalizeOrderName(rawOrderName);
-  const extraQuota = Number.parseInt(rawExtraQuota, 10);
-
-  if (!orderName) {
-    return jsonResp({ ok: false, error: "กรุณาระบุชื่อออเดอร์ เช่น #1234" }, 400);
-  }
-  if (!Number.isFinite(extraQuota) || extraQuota === 0) {
-    return jsonResp(
-      { ok: false, error: "กรุณาระบุจำนวนโควต้าที่ต้องการเพิ่ม (ไม่เป็นศูนย์)" },
-      400,
-    );
-  }
-  if (!adjustedBy) {
-    return jsonResp({ ok: false, error: "กรุณาระบุชื่อผู้ทำรายการ" }, 400);
-  }
-
+async function applyQuotaAdjustment({ admin, session, orderName, extraQuota, adjustedBy }) {
   let order;
   try {
     order = await findOrderByName(admin, orderName);
   } catch (error) {
-    return jsonResp(
-      { ok: false, error: `ค้นหาออเดอร์ไม่สำเร็จ: ${String(error)}` },
-      500,
-    );
+    return { orderName, ok: false, error: `ค้นหาออเดอร์ไม่สำเร็จ: ${String(error)}` };
   }
 
   if (!order) {
-    return jsonResp(
-      { ok: false, error: `ไม่พบออเดอร์ชื่อ ${orderName}` },
-      404,
-    );
+    return { orderName, ok: false, error: `ไม่พบออเดอร์ชื่อ ${orderName}` };
   }
 
   const orderId = toOrderGid(order.id);
@@ -110,13 +89,11 @@ export async function action({ request }) {
   const newTotalQuota = previousTotal + extraQuota;
 
   if (newTotalQuota < 0) {
-    return jsonResp(
-      {
-        ok: false,
-        error: `โควต้ารวมใหม่จะติดลบ (${newTotalQuota}) กรุณาตรวจสอบจำนวนที่ระบุ`,
-      },
-      400,
-    );
+    return {
+      orderName,
+      ok: false,
+      error: `โควต้ารวมใหม่จะติดลบ (${newTotalQuota}) กรุณาตรวจสอบจำนวนที่ระบุ`,
+    };
   }
 
   const created = await db.orderQuotaAdjustment.create({
@@ -130,7 +107,58 @@ export async function action({ request }) {
     },
   });
 
-  return jsonResp({ ok: true, adjustment: created });
+  return { orderName, ok: true, adjustment: created };
+}
+
+export async function action({ request }) {
+  const { admin, session } = await authenticate.admin(request);
+
+  const formData = await request.formData();
+  const rawOrderNames = formData.get("orderName");
+  const rawExtraQuota = formData.get("extraQuota");
+  const adjustedBy = String(formData.get("adjustedBy") || "").trim();
+
+  const orderNames = parseOrderNames(rawOrderNames);
+  const extraQuota = Number.parseInt(rawExtraQuota, 10);
+
+  if (orderNames.length === 0) {
+    return jsonResp(
+      { ok: false, error: "กรุณาระบุชื่อออเดอร์ เช่น #1234 (คั่นหลายออเดอร์ด้วยจุลภาคหรือเว้นวรรค)" },
+      400,
+    );
+  }
+  if (!Number.isFinite(extraQuota) || extraQuota === 0) {
+    return jsonResp(
+      { ok: false, error: "กรุณาระบุจำนวนโควต้าที่ต้องการเพิ่ม (ไม่เป็นศูนย์)" },
+      400,
+    );
+  }
+  if (!adjustedBy) {
+    return jsonResp({ ok: false, error: "กรุณาระบุชื่อผู้ทำรายการ" }, 400);
+  }
+
+  const results = [];
+  for (const orderName of orderNames) {
+    const result = await applyQuotaAdjustment({
+      admin,
+      session,
+      orderName,
+      extraQuota,
+      adjustedBy,
+    });
+    results.push(result);
+  }
+
+  const succeeded = results.filter((r) => r.ok);
+  const failed = results.filter((r) => !r.ok);
+
+  return jsonResp({
+    ok: failed.length === 0,
+    partial: succeeded.length > 0 && failed.length > 0,
+    results,
+    succeeded,
+    failed,
+  });
 }
 
 function formatBangkokDateTime(dateValue) {
@@ -192,7 +220,7 @@ export default function OrderQuotaPage() {
     if (result?.ok) {
       setOrderName("");
       setExtraQuota("");
-      formRef.current?.querySelector('input[name="orderName"]')?.focus();
+      formRef.current?.querySelector('textarea[name="orderName"]')?.focus();
     }
   }, [result]);
 
@@ -224,6 +252,8 @@ export default function OrderQuotaPage() {
         <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B7280" }}>
           ปกติแต่ละออเดอร์ส่งลิงก์ได้สูงสุด {BASE_MAX_LINKS_PER_ORDER} ลิงก์
           ใช้ฟอร์มนี้เพื่อเพิ่ม (หรือลด) โควต้าเฉพาะออเดอร์ที่ต้องการ
+          สามารถใส่ได้หลายออเดอร์พร้อมกัน โดยคั่นด้วยจุลภาค (,) เว้นวรรค
+          หรือขึ้นบรรทัดใหม่
         </p>
 
         <form
@@ -236,13 +266,12 @@ export default function OrderQuotaPage() {
             alignItems: "end",
           }}
         >
-          <div>
-            <label style={labelStyle}>ชื่อออเดอร์</label>
-            <input
-              type="text"
+          <div style={{ gridColumn: "1 / -1" }}>
+            <label style={labelStyle}>ชื่อออเดอร์ (ใส่ได้หลายรายการ)</label>
+            <textarea
               name="orderName"
-              style={inputStyle}
-              placeholder="#1234"
+              style={{ ...inputStyle, minHeight: 60, resize: "vertical", fontFamily: "inherit" }}
+              placeholder="เช่น #1234, #1235 #1236 หรือขึ้นบรรทัดใหม่"
               value={orderName}
               onChange={(e) => setOrderName(e.target.value)}
               required
@@ -294,14 +323,36 @@ export default function OrderQuotaPage() {
               padding: "10px 14px",
               borderRadius: 8,
               fontSize: 13,
-              background: result.ok ? "#F0FDF4" : "#FFF1F2",
-              border: `1px solid ${result.ok ? "#86EFAC" : "#FECDD3"}`,
-              color: result.ok ? "#166534" : "#9F1239",
+              background: result.ok ? "#F0FDF4" : result.partial ? "#FFFBEB" : "#FFF1F2",
+              border: `1px solid ${result.ok ? "#86EFAC" : result.partial ? "#FDE68A" : "#FECDD3"}`,
+              color: result.ok ? "#166534" : result.partial ? "#92400E" : "#9F1239",
             }}
           >
-            {result.ok
-              ? `✓ เพิ่มโควต้าให้ ${result.adjustment.orderName} เรียบร้อยแล้ว โควต้ารวมใหม่: ${result.adjustment.newTotalQuota} ลิงก์`
-              : `เกิดข้อผิดพลาด: ${result.error}`}
+            {result.results ? (
+              <div>
+                {result.succeeded?.length ? (
+                  <div style={{ marginBottom: result.failed?.length ? 6 : 0 }}>
+                    ✓ เพิ่มโควต้าสำเร็จ {result.succeeded.length} ออเดอร์:{" "}
+                    {result.succeeded
+                      .map(
+                        (r) =>
+                          `${r.adjustment.orderName} (รวม ${r.adjustment.newTotalQuota} ลิงก์)`,
+                      )
+                      .join(", ")}
+                  </div>
+                ) : null}
+                {result.failed?.length ? (
+                  <div>
+                    ✗ ล้มเหลว {result.failed.length} ออเดอร์:{" "}
+                    {result.failed
+                      .map((r) => `${r.orderName}: ${r.error}`)
+                      .join("; ")}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              `เกิดข้อผิดพลาด: ${result.error}`
+            )}
           </div>
         ) : null}
       </div>
