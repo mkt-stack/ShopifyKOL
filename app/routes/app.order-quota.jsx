@@ -13,17 +13,18 @@ function toOrderGid(orderId) {
 }
 
 function normalizeOrderName(value) {
-  const trimmed = String(value || "").trim();
+  const trimmed = String(value || "").trim().replace(/^#+/, "");
   if (!trimmed) return "";
-  return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+  return `#${trimmed}`;
 }
 
+// Accepts order names separated by commas, spaces or new lines.
 function parseOrderNames(value) {
-  const parts = String(value || "")
-    .split(/[\s,]+/)
-    .map((part) => normalizeOrderName(part))
+  const names = String(value || "")
+    .split(/[\s,，]+/)
+    .map(normalizeOrderName)
     .filter(Boolean);
-  return [...new Set(parts)];
+  return [...new Set(names)];
 }
 
 async function findOrderByName(admin, orderName) {
@@ -67,65 +68,19 @@ export async function loader({ request }) {
   return { adjustments };
 }
 
-async function applyQuotaAdjustment({ admin, session, orderName, extraQuota, adjustedBy }) {
-  let order;
-  try {
-    order = await findOrderByName(admin, orderName);
-  } catch (error) {
-    return { orderName, ok: false, error: `ค้นหาออเดอร์ไม่สำเร็จ: ${String(error)}` };
-  }
-
-  if (!order) {
-    return { orderName, ok: false, error: `ไม่พบออเดอร์ชื่อ ${orderName}` };
-  }
-
-  const orderId = toOrderGid(order.id);
-
-  const latest = await db.orderQuotaAdjustment.findFirst({
-    where: { shop: session.shop, orderId },
-    orderBy: { createdAt: "desc" },
-  });
-  const previousTotal = latest?.newTotalQuota ?? BASE_MAX_LINKS_PER_ORDER;
-  const newTotalQuota = previousTotal + extraQuota;
-
-  if (newTotalQuota < 0) {
-    return {
-      orderName,
-      ok: false,
-      error: `โควต้ารวมใหม่จะติดลบ (${newTotalQuota}) กรุณาตรวจสอบจำนวนที่ระบุ`,
-    };
-  }
-
-  const created = await db.orderQuotaAdjustment.create({
-    data: {
-      shop: session.shop,
-      orderId,
-      orderName: order.name,
-      extraQuota,
-      newTotalQuota,
-      adjustedBy,
-    },
-  });
-
-  return { orderName, ok: true, adjustment: created };
-}
-
 export async function action({ request }) {
   const { admin, session } = await authenticate.admin(request);
 
   const formData = await request.formData();
-  const rawOrderNames = formData.get("orderName");
+  const rawOrderName = formData.get("orderName");
   const rawExtraQuota = formData.get("extraQuota");
   const adjustedBy = String(formData.get("adjustedBy") || "").trim();
 
-  const orderNames = parseOrderNames(rawOrderNames);
+  const orderNames = parseOrderNames(rawOrderName);
   const extraQuota = Number.parseInt(rawExtraQuota, 10);
 
   if (orderNames.length === 0) {
-    return jsonResp(
-      { ok: false, error: "กรุณาระบุชื่อออเดอร์ เช่น #1234 (คั่นหลายออเดอร์ด้วยจุลภาคหรือเว้นวรรค)" },
-      400,
-    );
+    return jsonResp({ ok: false, error: "กรุณาระบุชื่อออเดอร์ เช่น #1234" }, 400);
   }
   if (!Number.isFinite(extraQuota) || extraQuota === 0) {
     return jsonResp(
@@ -137,27 +92,66 @@ export async function action({ request }) {
     return jsonResp({ ok: false, error: "กรุณาระบุชื่อผู้ทำรายการ" }, 400);
   }
 
-  const results = [];
+  const adjustments = [];
+  const errors = [];
   for (const orderName of orderNames) {
-    const result = await applyQuotaAdjustment({
-      admin,
-      session,
-      orderName,
-      extraQuota,
-      adjustedBy,
-    });
-    results.push(result);
+    try {
+      adjustments.push(
+        await adjustOrderQuota({
+          admin,
+          shop: session.shop,
+          orderName,
+          extraQuota,
+          adjustedBy,
+        }),
+      );
+    } catch (error) {
+      errors.push({ orderName, error: error.message || String(error) });
+    }
   }
 
-  const succeeded = results.filter((r) => r.ok);
-  const failed = results.filter((r) => !r.ok);
+  return jsonResp(
+    { ok: errors.length === 0, adjustments, errors },
+    adjustments.length === 0 ? 400 : 200,
+  );
+}
 
-  return jsonResp({
-    ok: failed.length === 0,
-    partial: succeeded.length > 0 && failed.length > 0,
-    results,
-    succeeded,
-    failed,
+async function adjustOrderQuota({ admin, shop, orderName, extraQuota, adjustedBy }) {
+  let order;
+  try {
+    order = await findOrderByName(admin, orderName);
+  } catch (error) {
+    throw new Error(`ค้นหาออเดอร์ไม่สำเร็จ: ${String(error)}`);
+  }
+
+  if (!order) {
+    throw new Error("ไม่พบออเดอร์นี้");
+  }
+
+  const orderId = toOrderGid(order.id);
+
+  const latest = await db.orderQuotaAdjustment.findFirst({
+    where: { shop, orderId },
+    orderBy: { createdAt: "desc" },
+  });
+  const previousTotal = latest?.newTotalQuota ?? BASE_MAX_LINKS_PER_ORDER;
+  const newTotalQuota = previousTotal + extraQuota;
+
+  if (newTotalQuota < 0) {
+    throw new Error(
+      `โควต้ารวมใหม่จะติดลบ (${newTotalQuota}) กรุณาตรวจสอบจำนวนที่ระบุ`,
+    );
+  }
+
+  return db.orderQuotaAdjustment.create({
+    data: {
+      shop,
+      orderId,
+      orderName: order.name,
+      extraQuota,
+      newTotalQuota,
+      adjustedBy,
+    },
   });
 }
 
@@ -221,8 +215,13 @@ export default function OrderQuotaPage() {
       setOrderName("");
       setExtraQuota("");
       formRef.current?.querySelector('textarea[name="orderName"]')?.focus();
+    } else if (result?.adjustments?.length) {
+      // Keep only the orders that failed so they can be fixed and resubmitted.
+      setOrderName(result.errors.map((e) => e.orderName).join("\n"));
     }
   }, [result]);
+
+  const parsedOrderNames = parseOrderNames(orderName);
 
   function handleSubmit(e) {
     e.preventDefault();
@@ -252,8 +251,6 @@ export default function OrderQuotaPage() {
         <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B7280" }}>
           ปกติแต่ละออเดอร์ส่งลิงก์ได้สูงสุด {BASE_MAX_LINKS_PER_ORDER} ลิงก์
           ใช้ฟอร์มนี้เพื่อเพิ่ม (หรือลด) โควต้าเฉพาะออเดอร์ที่ต้องการ
-          สามารถใส่ได้หลายออเดอร์พร้อมกัน โดยคั่นด้วยจุลภาค (,) เว้นวรรค
-          หรือขึ้นบรรทัดใหม่
         </p>
 
         <form
@@ -267,15 +264,23 @@ export default function OrderQuotaPage() {
           }}
         >
           <div style={{ gridColumn: "1 / -1" }}>
-            <label style={labelStyle}>ชื่อออเดอร์ (ใส่ได้หลายรายการ)</label>
+            <label style={labelStyle}>
+              ชื่อออเดอร์ (ใส่ได้หลายออเดอร์ คั่นด้วย , เว้นวรรค หรือขึ้นบรรทัดใหม่)
+            </label>
             <textarea
               name="orderName"
-              style={{ ...inputStyle, minHeight: 60, resize: "vertical", fontFamily: "inherit" }}
-              placeholder="เช่น #1234, #1235 #1236 หรือขึ้นบรรทัดใหม่"
+              rows={3}
+              style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }}
+              placeholder={"1234, 1235\n#1236"}
               value={orderName}
               onChange={(e) => setOrderName(e.target.value)}
               required
             />
+            {parsedOrderNames.length > 0 ? (
+              <div style={{ marginTop: 4, fontSize: 12, color: "#6B7280" }}>
+                {parsedOrderNames.length} ออเดอร์: {parsedOrderNames.join(", ")}
+              </div>
+            ) : null}
           </div>
           <div>
             <label style={labelStyle}>จำนวนโควต้าที่เพิ่ม</label>
@@ -323,36 +328,23 @@ export default function OrderQuotaPage() {
               padding: "10px 14px",
               borderRadius: 8,
               fontSize: 13,
-              background: result.ok ? "#F0FDF4" : result.partial ? "#FFFBEB" : "#FFF1F2",
-              border: `1px solid ${result.ok ? "#86EFAC" : result.partial ? "#FDE68A" : "#FECDD3"}`,
-              color: result.ok ? "#166534" : result.partial ? "#92400E" : "#9F1239",
+              background: result.ok ? "#F0FDF4" : "#FFF1F2",
+              border: `1px solid ${result.ok ? "#86EFAC" : "#FECDD3"}`,
+              color: result.ok ? "#166534" : "#9F1239",
             }}
           >
-            {result.results ? (
-              <div>
-                {result.succeeded?.length ? (
-                  <div style={{ marginBottom: result.failed?.length ? 6 : 0 }}>
-                    ✓ เพิ่มโควต้าสำเร็จ {result.succeeded.length} ออเดอร์:{" "}
-                    {result.succeeded
-                      .map(
-                        (r) =>
-                          `${r.adjustment.orderName} (รวม ${r.adjustment.newTotalQuota} ลิงก์)`,
-                      )
-                      .join(", ")}
-                  </div>
-                ) : null}
-                {result.failed?.length ? (
-                  <div>
-                    ✗ ล้มเหลว {result.failed.length} ออเดอร์:{" "}
-                    {result.failed
-                      .map((r) => `${r.orderName}: ${r.error}`)
-                      .join("; ")}
-                  </div>
-                ) : null}
+            {result.error ? `เกิดข้อผิดพลาด: ${result.error}` : null}
+            {result.adjustments?.map((a) => (
+              <div key={a.id} style={{ color: "#166534" }}>
+                ✓ เพิ่มโควต้าให้ {a.orderName} เรียบร้อยแล้ว โควต้ารวมใหม่:{" "}
+                {a.newTotalQuota} ลิงก์
               </div>
-            ) : (
-              `เกิดข้อผิดพลาด: ${result.error}`
-            )}
+            ))}
+            {result.errors?.map((e) => (
+              <div key={e.orderName} style={{ color: "#9F1239" }}>
+                ✗ {e.orderName}: {e.error}
+              </div>
+            ))}
           </div>
         ) : null}
       </div>
