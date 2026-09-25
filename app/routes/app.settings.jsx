@@ -76,7 +76,7 @@ const btnStyle = (variant = "default") => ({
 
 function ToggleRow({ title, description, checked, onChange, name }) {
   return (
-    <div
+    <label
       style={{
         display: "flex",
         alignItems: "flex-start",
@@ -84,6 +84,7 @@ function ToggleRow({ title, description, checked, onChange, name }) {
         gap: 16,
         padding: "12px 0",
         borderBottom: "1px solid #F2F4F7",
+        cursor: "pointer",
       }}
     >
       <div>
@@ -94,48 +95,20 @@ function ToggleRow({ title, description, checked, onChange, name }) {
           {description}
         </div>
       </div>
-      <label
+      <input
+        type="checkbox"
+        name={name}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
         style={{
-          position: "relative",
-          display: "inline-block",
-          width: 40,
-          height: 22,
+          width: 18,
+          height: 18,
           flexShrink: 0,
+          marginTop: 3,
+          cursor: "pointer",
         }}
-      >
-        <input
-          type="checkbox"
-          name={name}
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-          style={{ opacity: 0, width: 0, height: 0 }}
-        />
-        <span
-          style={{
-            position: "absolute",
-            inset: 0,
-            borderRadius: 22,
-            background: checked ? "#2563EB" : "#D1D5DB",
-            transition: "background 0.15s",
-            cursor: "pointer",
-          }}
-          onClick={() => onChange(!checked)}
-        />
-        <span
-          style={{
-            position: "absolute",
-            top: 3,
-            left: checked ? 21 : 3,
-            width: 16,
-            height: 16,
-            borderRadius: "50%",
-            background: "white",
-            transition: "left 0.15s",
-            pointerEvents: "none",
-          }}
-        />
-      </label>
-    </div>
+      />
+    </label>
   );
 }
 
