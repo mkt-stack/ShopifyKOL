@@ -28,6 +28,22 @@ export function toOrderGid(orderId) {
   return `gid://shopify/Order/${orderId}`;
 }
 
+// Returns the [start, end) UTC instants bounding the Bangkok (UTC+7,
+// no DST) calendar day that `date` falls in — used to reset the daily
+// per-customer link limit at Bangkok midnight.
+export function getBangkokDayBoundsUtc(date = new Date()) {
+  const offsetMs = 7 * 60 * 60 * 1000;
+  const bangkokNow = new Date(date.getTime() + offsetMs);
+  const y = bangkokNow.getUTCFullYear();
+  const m = bangkokNow.getUTCMonth();
+  const d = bangkokNow.getUTCDate();
+
+  const startUtc = new Date(Date.UTC(y, m, d, 0, 0, 0) - offsetMs);
+  const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
+
+  return { startUtc, endUtc };
+}
+
 export function toGmt7IsoString(dateInput = new Date()) {
   const date = new Date(dateInput);
   const offsetMs = 7 * 60 * 60 * 1000;
@@ -96,6 +112,7 @@ export async function getOrderData(admin, orderId) {
         legacyResourceId
         name
         note
+        email
         customer {
           id
           legacyResourceId

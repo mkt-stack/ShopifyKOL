@@ -77,3 +77,15 @@ model OrderQuotaAdjustment {
   @@index([shop, orderId])
   @@index([createdAt])
 }
+
+model ShopSettings {
+  id                String   @id @default(cuid())
+  shop              String   @unique
+  dailyLimitEnabled Boolean  @default(false)
+  dailyLimit        Int      @default(20)
+  tiktokEnabled     Boolean  @default(true)
+  shopeeEnabled     Boolean  @default(true)
+  updatedBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}

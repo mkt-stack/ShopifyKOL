@@ -7,7 +7,9 @@ import {
   updateOrderNote,
   buildFlowTriggerPayload,
   triggerLinkSubmissionFlow,
+  getBangkokDayBoundsUtc,
 } from "../lib/tiktok-submission.server";
+import { getShopSettings } from "../lib/shop-settings.server";
 
 const MAX_LINKS_PER_ORDER = 10;
 
@@ -27,36 +29,40 @@ function jsonResponse(data, init = {}) {
   });
 }
 
-function isValidTikTokOrShopeeUrl(value) {
+// Returns "tiktok", "shopee", or null if the URL doesn't match either
+// platform's accepted hostnames. This is the single source of truth for
+// URL format acceptance on this route (per-platform on/off toggles are
+// applied separately via ShopSettings, after format is confirmed valid).
+function detectSubmissionPlatform(value) {
   try {
     const url = new URL(value.trim());
     const host = url.hostname.toLowerCase();
 
-    return (
+    if (
       host === "tiktok.com" ||
       host.endsWith(".tiktok.com") ||
-      host === "vt.tiktok.com" ||
+      host === "vt.tiktok.com"
+    ) {
+      return "tiktok";
+    }
+
+    if (
       host === "shp.ee" ||
       host.endsWith(".shp.ee") ||
       host === "shopee.co.th" ||
       host.endsWith(".shopee.co.th")
-    );
+    ) {
+      return "shopee";
+    }
+
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
 async function emitTikTokUrlSaved(payload) {
   console.log("Tiktokurlsaved", payload);
-}
-
-function isTikTokUrl(url) {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return host === "tiktok.com" || host.endsWith(".tiktok.com");
-  } catch {
-    return false;
-  }
 }
 
 function parseTikTokVideoInfo(url) {
@@ -184,7 +190,9 @@ async function handleRequest(request) {
         );
       }
 
-      if (!isValidTikTokOrShopeeUrl(cleanUrl)) {
+      const platform = detectSubmissionPlatform(cleanUrl);
+
+      if (!platform) {
         return jsonResponse(
           {
             ok: false,
@@ -195,13 +203,35 @@ async function handleRequest(request) {
         );
       }
 
+      const shopSettings = await getShopSettings(shop);
+
+      if (platform === "tiktok" && !shopSettings.tiktokEnabled) {
+        return jsonResponse(
+          {
+            ok: false,
+            error: "ขณะนี้ปิดรับลิงก์ TikTok ชั่วคราว กรุณาติดต่อแอดมิน",
+          },
+          { status: 403 },
+        );
+      }
+
+      if (platform === "shopee" && !shopSettings.shopeeEnabled) {
+        return jsonResponse(
+          {
+            ok: false,
+            error: "ขณะนี้ปิดรับลิงก์ Shopee ชั่วคราว กรุณาติดต่อแอดมิน",
+          },
+          { status: 403 },
+        );
+      }
+
       // Resolve TikTok video info (short links resolve to a canonical video ID)
       // and validate post is within 30 days
       let creatorHandle = null;
       let postDate = null;
       let videoId = null;
 
-      if (isTikTokUrl(cleanUrl)) {
+      if (platform === "tiktok") {
         const videoInfo = await resolveTikTokVideoInfo(cleanUrl);
         if (videoInfo) {
           creatorHandle = videoInfo.creatorHandle;
@@ -244,6 +274,62 @@ async function handleRequest(request) {
           },
           { status: 409 },
         );
+      }
+
+      // Cap the number of successful links a single customer can submit
+      // across ALL their orders per Bangkok calendar day (admin-configurable,
+      // off by default). Identity is resolved from the order itself (the
+      // checkout contact email, or its linked Shopify customer) rather than
+      // trusting the client, since that's always present for a completed
+      // order even for guest checkouts.
+      let dailyLimitAdmin = null;
+      let dailyLimitOrder = null;
+
+      if (shopSettings.dailyLimitEnabled) {
+        let dailyLimitEmail = null;
+        try {
+          dailyLimitAdmin = await getAdminClient(shop);
+          dailyLimitOrder = await getOrderData(dailyLimitAdmin, orderId);
+          dailyLimitEmail =
+            dailyLimitOrder?.email ||
+            dailyLimitOrder?.customer?.email ||
+            customerEmail ||
+            null;
+        } catch (error) {
+          console.error("Daily limit: order lookup failed:", error);
+          dailyLimitEmail = customerEmail || null;
+        }
+
+        if (!dailyLimitEmail) {
+          return jsonResponse(
+            {
+              ok: false,
+              error:
+                "ไม่สามารถตรวจสอบโควต้ารายวันของคุณได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง หรือติดต่อแอดมิน",
+            },
+            { status: 503 },
+          );
+        }
+
+        const { startUtc, endUtc } = getBangkokDayBoundsUtc();
+        const submittedToday = await db.tikTokUrl.count({
+          where: {
+            shop,
+            customerEmail: dailyLimitEmail,
+            metafieldUpdated: true,
+            createdAt: { gte: startUtc, lt: endUtc },
+          },
+        });
+
+        if (submittedToday >= shopSettings.dailyLimit) {
+          return jsonResponse(
+            {
+              ok: false,
+              error: `คุณส่งลิงก์ครบโควต้ารายวัน (${shopSettings.dailyLimit} ลิงก์) แล้ว กรุณาลองใหม่ในวันถัดไป`,
+            },
+            { status: 429 },
+          );
+        }
       }
 
       // Cap the number of successfully accepted links per order
@@ -297,8 +383,10 @@ async function handleRequest(request) {
       let resolvedCustomerEmail = customerEmail;
 
       try {
-        const admin = await getAdminClient(shop);
-        const order = await getOrderData(admin, orderId);
+        // Reuse the order lookup the daily-limit check already did this
+        // request, if any, instead of fetching it twice.
+        const admin = dailyLimitAdmin || (await getAdminClient(shop));
+        const order = dailyLimitOrder || (await getOrderData(admin, orderId));
 
         // Backfill orderName from Shopify if not provided by the client
         if (!resolvedOrderName && order.name) {
@@ -317,7 +405,7 @@ async function handleRequest(request) {
             .filter(Boolean)
             .join(" ") ||
           null;
-        const orderCustomerEmail = order.customer?.email || null;
+        const orderCustomerEmail = order.customer?.email || order.email || null;
 
         if (!resolvedCustomerName || !resolvedCustomerEmail) {
           resolvedCustomerName = resolvedCustomerName || orderCustomerName;
