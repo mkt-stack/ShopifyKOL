@@ -1,6 +1,7 @@
 import '@shopify/ui-extensions/preact';
 import {render} from 'preact';
 import {useEffect, useState} from 'preact/hooks';
+import {DEFAULT_PLATFORMS, getPlatformNames} from './platforms.js';
 
 const APP_URL = 'https://shopifykol-production.up.railway.app';
 const FALLBACK_SHOP = 'gqsizecrm.myshopify.com';
@@ -72,6 +73,7 @@ function Extension() {
 
   const [statusText, setStatusText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [platforms, setPlatforms] = useState(DEFAULT_PLATFORMS);
 
   const order = globalThis.shopify?.order?.value;
   const customer = globalThis.shopify?.customer?.value;
@@ -112,6 +114,7 @@ function Extension() {
 
         if (result?.ok) {
           setSavedLinks(result.links || []);
+          if (result.platforms) setPlatforms(result.platforms);
           setStatusText('');
         } else {
           setStatusText(result?.error || 'ไม่สามารถโหลดลิงก์ที่บันทึกไว้ได้');
@@ -194,17 +197,19 @@ function Extension() {
     }
   }
 
+  const platformNames = getPlatformNames(platforms);
+
   return (
     <s-box padding="base" border="base" border-radius="base">
       <s-stack direction="block" gap="base">
-        <s-heading>วางลิงก์วิดีโอ TikTok</s-heading>
+        <s-heading>วางลิงก์วิดีโอ {platformNames.join(' / ')}</s-heading>
 
         <s-text>
-          วางลิงก์ TikTok หรือ Shopee ที่ถูกต้อง แล้วคลิกส่งลิงก์
+          วางลิงก์ {platformNames.join(' หรือ ')} ที่ถูกต้อง แล้วคลิกส่งลิงก์
         </s-text>
 
         <s-text-field
-          label="ลิงก์ TikTok / Shopee  "
+          label={`ลิงก์ ${platformNames.join(' / ')}`}
           value={link}
           onInput={(e) => setLink(e.target.value)}
         /> 

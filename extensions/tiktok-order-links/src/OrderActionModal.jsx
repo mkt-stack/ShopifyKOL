@@ -1,6 +1,7 @@
 import '@shopify/ui-extensions/preact';
 import {render} from 'preact';
 import {useEffect, useMemo, useState} from 'preact/hooks';
+import {DEFAULT_PLATFORMS, getPlatformNames} from './platforms.js';
 
 const APP_URL = 'https://shopifykol-production.up.railway.app';
 const FALLBACK_SHOP = 'gqsizecrm.myshopify.com';
@@ -78,6 +79,7 @@ function OrderActionModal() {
 
   const [statusTextMessage, setStatusTextMessage] = useState('');
   const [saving, setSaving] = useState(false);
+  const [platforms, setPlatforms] = useState(DEFAULT_PLATFORMS);
 
   const order = globalThis.shopify?.order?.value;
   const customer = globalThis.shopify?.customer?.value;
@@ -124,6 +126,7 @@ function OrderActionModal() {
 
         if (result?.ok) {
           setSavedLinks(result.links || []);
+          if (result.platforms) setPlatforms(result.platforms);
           setStatusTextMessage('');
         } else {
           setStatusTextMessage(
@@ -215,6 +218,8 @@ function OrderActionModal() {
     }
   }
 
+  const platformNames = getPlatformNames(platforms);
+
   return (
     <s-customer-account-action
       secondary-action={{
@@ -222,12 +227,12 @@ function OrderActionModal() {
       }}
     >
       <s-stack direction="block" gap="base">
-        <s-heading>ส่งลิงก์ TikTok / Shopee</s-heading>
+        <s-heading>ส่งลิงก์ {platformNames.join(' / ')}</s-heading>
 
         {orderName ? <s-text>ออเดอร์: {orderName}</s-text> : null}
 
         <s-text-field
-          label="TikTok / Shopee link"
+          label={`${platformNames.join(' / ')} link`}
           value={link}
           onInput={(e) => setLink(e.target.value)}
         />

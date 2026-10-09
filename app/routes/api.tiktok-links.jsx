@@ -141,17 +141,27 @@ async function handleRequest(request) {
       }
 
       // customer-facing pages show only successful historical submissions
-      const links = await db.tikTokUrl.findMany({
-        where: {
-          shop,
-          orderId,
-          metafieldUpdated: true,
-        },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-      });
+      const [links, shopSettings] = await Promise.all([
+        db.tikTokUrl.findMany({
+          where: {
+            shop,
+            orderId,
+            metafieldUpdated: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+        }),
+        getShopSettings(shop),
+      ]);
 
-      return jsonResponse({ ok: true, links });
+      // Lets the extensions word their heading/label/placeholder for only
+      // the platforms currently accepting links.
+      const platforms = {
+        tiktok: shopSettings.tiktokEnabled,
+        shopee: shopSettings.shopeeEnabled,
+      };
+
+      return jsonResponse({ ok: true, links, platforms });
     } catch (error) {
       console.error("GET /api/tiktok-links failed:", error);
       return jsonResponse(
