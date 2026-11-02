@@ -15,6 +15,8 @@ function isValidTikTokOrShopeeUrl(value) {
       host === 'tiktok.com' ||
       host.endsWith('.tiktok.com') ||
       host === 'vt.tiktok.com' ||
+      host === 'tt.site' ||
+      host.endsWith('.tt.site') ||
       host === 'shp.ee' ||
       host.endsWith('.shp.ee') ||
       host === 'shopee.co.th' ||

@@ -80,7 +80,7 @@ export function buildLatestSubmissionNote(existingNote, latestTimestamp) {
 export function detectPlatform(url) {
   try {
     const host = new URL(url).hostname.toLowerCase();
-    if (host === "tiktok.com" || host.endsWith(".tiktok.com") || host === "vt.tiktok.com") {
+    if (host === "tiktok.com" || host.endsWith(".tiktok.com") || host === "vt.tiktok.com" || host === "tt.site" || host.endsWith(".tt.site")) {
       return "tiktok";
     }
     if (host === "shp.ee" || host.endsWith(".shp.ee") || host === "shopee.co.th" || host.endsWith(".shopee.co.th")) {

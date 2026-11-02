@@ -214,7 +214,7 @@ export default function SettingsPage() {
           <ToggleRow
             name="tiktokEnabled"
             title="TikTok"
-            description="tiktok.com, *.tiktok.com, vt.tiktok.com"
+            description="tiktok.com, *.tiktok.com, vt.tiktok.com, tt.site, *.tt.site"
             checked={tiktokEnabled}
             onChange={setTiktokEnabled}
           />
