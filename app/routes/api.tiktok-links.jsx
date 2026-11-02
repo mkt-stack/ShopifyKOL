@@ -41,7 +41,9 @@ function detectSubmissionPlatform(value) {
     if (
       host === "tiktok.com" ||
       host.endsWith(".tiktok.com") ||
-      host === "vt.tiktok.com"
+      host === "vt.tiktok.com" ||
+      host === "tt.site" ||
+      host.endsWith(".tt.site")
     ) {
       return "tiktok";
     }
@@ -65,14 +67,47 @@ async function emitTikTokUrlSaved(payload) {
   console.log("Tiktokurlsaved", payload);
 }
 
+// Only video pages count — profile (/@handle), live (/@handle/live), photo
+// posts, shop pages etc. return null and are rejected by the caller.
+const TIKTOK_VIDEO_PATH_PATTERNS = [
+  /^\/@([^/?#]+)\/video\/(\d+)\/?$/,
+  /^\/(?:v|share\/video|embed\/v2|embed)\/(\d+)(?:\.html)?\/?$/,
+];
+
 function parseTikTokVideoInfo(url) {
   if (!url) return null;
   try {
-    const match = new URL(url).pathname.match(/\/@([^/?#]+)\/video\/(\d+)/);
-    if (!match) return null;
-    return { creatorHandle: match[1], videoId: match[2] };
+    const { hostname, pathname } = new URL(url);
+    const host = hostname.toLowerCase();
+    if (host !== "tiktok.com" && !host.endsWith(".tiktok.com")) return null;
+
+    const [withHandle, withoutHandle] = TIKTOK_VIDEO_PATH_PATTERNS;
+    let match = pathname.match(withHandle);
+    if (match) return { creatorHandle: match[1], videoId: match[2] };
+    match = pathname.match(withoutHandle);
+    if (match) return { creatorHandle: null, videoId: match[1] };
+    return null;
   } catch {
     return null;
+  }
+}
+
+// Share links (vt.tiktok.com/xxx, vm.tiktok.com/xxx, tiktok.com/t/xxx,
+// tt.site/t/xxx) only reveal what they point to after following their
+// redirects.
+function isTikTokShortLink(url) {
+  try {
+    const { hostname, pathname } = new URL(url);
+    const host = hostname.toLowerCase();
+    return (
+      host === "vt.tiktok.com" ||
+      host === "vm.tiktok.com" ||
+      host === "tt.site" ||
+      host.endsWith(".tt.site") ||
+      /^\/t\/[^/]+\/?$/.test(pathname)
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -86,31 +121,49 @@ function estimatePostDateFromVideoId(videoId) {
   }
 }
 
+// Returns { status: "video", videoInfo } for a TikTok video link,
+// { status: "not_video" } for any other TikTok page, or
+// { status: "unverified" } when a short link couldn't be resolved.
 async function resolveTikTokVideoInfo(inputUrl) {
   // Full video URL — no resolution needed
   const direct = parseTikTokVideoInfo(inputUrl);
-  if (direct) return direct;
+  if (direct) return { status: "video", videoInfo: direct };
 
-  // Short URL (vt.tiktok.com) — follow redirects to get canonical URL
+  if (!isTikTokShortLink(inputUrl)) return { status: "not_video" };
+
+  // Short URL — walk the redirect chain hop by hop, since TikTok may bounce
+  // a video through further redirects (e.g. a login wall) after the first one
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 5000);
   try {
-    const response = await fetch(inputUrl, {
-      method: "GET",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
-        Accept: "text/html,application/xhtml+xml",
-      },
-    });
-    clearTimeout(timeoutId);
-    try { response.body?.cancel(); } catch {}
-    return parseTikTokVideoInfo(response.url);
+    let currentUrl = inputUrl;
+    for (let hop = 0; hop < 5; hop++) {
+      const response = await fetch(currentUrl, {
+        method: "GET",
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+          Accept: "text/html,application/xhtml+xml",
+        },
+      });
+      try { response.body?.cancel(); } catch {}
+
+      const location = response.headers.get("location");
+      if (response.status < 300 || response.status >= 400 || !location) {
+        return { status: response.ok ? "not_video" : "unverified" };
+      }
+
+      currentUrl = new URL(location, currentUrl).toString();
+      const videoInfo = parseTikTokVideoInfo(currentUrl);
+      if (videoInfo) return { status: "video", videoInfo };
+    }
+    return { status: "not_video" };
   } catch {
+    return { status: "unverified" };
+  } finally {
     clearTimeout(timeoutId);
-    return null;
   }
 }
 
@@ -242,24 +295,46 @@ async function handleRequest(request) {
       let videoId = null;
 
       if (platform === "tiktok") {
-        const videoInfo = await resolveTikTokVideoInfo(cleanUrl);
-        if (videoInfo) {
-          creatorHandle = videoInfo.creatorHandle;
-          videoId = videoInfo.videoId;
-          const estimated = estimatePostDateFromVideoId(videoInfo.videoId);
-          if (estimated) {
-            postDate = estimated;
-            const ageInDays = (Date.now() - estimated.getTime()) / 86_400_000;
-            if (ageInDays > 30) {
-              return jsonResponse(
-                {
-                  ok: false,
-                  error:
-                    "กรุณาแปะลิ้งของ post ใหม่ที่พึ่ง post ไม่เกิน 30 วันเท่านั้น หากมีข้อสงสัยกรุณาอ่าน FAQ หรือติดต่อ admin",
-                },
-                { status: 422 },
-              );
-            }
+        const resolved = await resolveTikTokVideoInfo(cleanUrl);
+
+        if (resolved.status === "not_video") {
+          return jsonResponse(
+            {
+              ok: false,
+              error:
+                "ลิงก์นี้ไม่ใช่ลิงก์วิดีโอ TikTok กรุณาส่งลิงก์ของวิดีโอเท่านั้น (ไม่รับลิงก์โปรไฟล์ ไลฟ์ หรือหน้าอื่นๆ)",
+            },
+            { status: 422 },
+          );
+        }
+
+        if (resolved.status === "unverified") {
+          return jsonResponse(
+            {
+              ok: false,
+              error:
+                "ไม่สามารถตรวจสอบลิงก์ TikTok ได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง หรือวางลิงก์วิดีโอแบบเต็ม (tiktok.com/@ชื่อ/video/...)",
+            },
+            { status: 503 },
+          );
+        }
+
+        const { videoInfo } = resolved;
+        creatorHandle = videoInfo.creatorHandle;
+        videoId = videoInfo.videoId;
+        const estimated = estimatePostDateFromVideoId(videoInfo.videoId);
+        if (estimated) {
+          postDate = estimated;
+          const ageInDays = (Date.now() - estimated.getTime()) / 86_400_000;
+          if (ageInDays > 30) {
+            return jsonResponse(
+              {
+                ok: false,
+                error:
+                  "กรุณาแปะลิ้งของ post ใหม่ที่พึ่ง post ไม่เกิน 30 วันเท่านั้น หากมีข้อสงสัยกรุณาอ่าน FAQ หรือติดต่อ admin",
+              },
+              { status: 422 },
+            );
           }
         }
       }
