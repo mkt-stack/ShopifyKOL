@@ -69,9 +69,10 @@ async function emitTikTokUrlSaved(payload) {
 }
 
 // Only video pages count — profile (/@handle), live (/@handle/live), photo
-// posts, shop pages etc. return null and are rejected by the caller.
+// posts, shop pages etc. return null and are rejected by the caller. The
+// handle can be blank: some share links redirect to /@/video/<id>.
 const TIKTOK_VIDEO_PATH_PATTERNS = [
-  /^\/@([^/?#]+)\/video\/(\d+)\/?$/,
+  /^\/@([^/?#]*)\/video\/(\d+)\/?$/,
   /^\/(?:v|share\/video|embed\/v2|embed)\/(\d+)(?:\.html)?\/?$/,
 ];
 
@@ -84,7 +85,7 @@ function parseTikTokVideoInfo(url) {
 
     const [withHandle, withoutHandle] = TIKTOK_VIDEO_PATH_PATTERNS;
     let match = pathname.match(withHandle);
-    if (match) return { creatorHandle: match[1], videoId: match[2] };
+    if (match) return { creatorHandle: match[1] || null, videoId: match[2] };
     match = pathname.match(withoutHandle);
     if (match) return { creatorHandle: null, videoId: match[1] };
     return null;
@@ -435,12 +436,19 @@ async function handleRequest(request) {
           console.error("Handle check: order lookup failed:", error);
           rejection = {
             status: 503,
+            reason: "order_lookup_failed",
             error:
               "ไม่สามารถตรวจสอบบัญชี TikTok ของคุณได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง หรือติดต่อแอดมิน",
           };
         }
 
         if (rejection) {
+          console.log("Handle check rejected:", {
+            orderId,
+            creatorHandle,
+            videoId,
+            reason: rejection.reason,
+          });
           return jsonResponse(
             { ok: false, error: rejection.error },
             { status: rejection.status },

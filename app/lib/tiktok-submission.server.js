@@ -94,18 +94,20 @@ export function detectPlatform(url) {
 }
 
 // Returns null if the order's customer owns creatorHandle, otherwise
-// { status, error } ready for the API response. Blocks when ownership can't
+// { status, reason, error } ready for the API response. Blocks when ownership can't
 // be confirmed, since letting those through would make the requirement
 // optional. A pasted full link's handle is taken at face value: TikTok serves
 // a video at /@anything/video/<id>, so it could be edited by hand, an accepted
 // risk.
 export async function checkTikTokHandleOwnership({ order, creatorHandle }) {
-  // Links like tiktok.com/v/123 carry a video ID but no handle
+  // Links like tiktok.com/v/123 carry a video ID but no handle, and some share
+  // links redirect to one, so copying the share link again may not help
   if (!creatorHandle) {
     return {
       status: 422,
+      reason: "no_handle",
       error:
-        "ไม่สามารถตรวจสอบบัญชีเจ้าของวิดีโอจากลิงก์นี้ได้ กรุณาวางลิงก์วิดีโอแบบเต็ม (tiktok.com/@ชื่อ/video/...) หรือลิงก์จากปุ่มแชร์ในแอป TikTok",
+        "ไม่สามารถตรวจสอบบัญชีเจ้าของวิดีโอจากลิงก์นี้ได้ กรุณาวางลิงก์วิดีโอแบบเต็ม (tiktok.com/@ชื่อ/video/...) หากยังไม่สำเร็จ กรุณาติดต่อแอดมิน",
     };
   }
 
@@ -117,6 +119,7 @@ export async function checkTikTokHandleOwnership({ order, creatorHandle }) {
   if (armLookup.status === "unavailable") {
     return {
       status: 503,
+      reason: "arm_unavailable",
       error:
         "ไม่สามารถตรวจสอบบัญชี TikTok ของคุณได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง หรือติดต่อแอดมิน",
     };
@@ -125,6 +128,7 @@ export async function checkTikTokHandleOwnership({ order, creatorHandle }) {
   if (armLookup.status === "not_found") {
     return {
       status: 403,
+      reason: "not_in_arm",
       error:
         "ไม่พบบัญชีของคุณในระบบ กรุณาลงทะเบียนบัญชี TikTok ก่อนส่งลิงก์ หรือติดต่อแอดมิน",
     };
@@ -133,6 +137,7 @@ export async function checkTikTokHandleOwnership({ order, creatorHandle }) {
   if (!hasRegisteredTikTokHandle(armLookup.profile, creatorHandle)) {
     return {
       status: 403,
+      reason: "handle_not_registered",
       error: `วิดีโอนี้มาจากบัญชี @${creatorHandle} ซึ่งไม่ได้ลงทะเบียนไว้กับคุณ กรุณาส่งวิดีโอจากบัญชีที่ลงทะเบียนเท่านั้น หรือเพิ่มบัญชีนี้ในหน้าโปรไฟล์ของคุณ`,
     };
   }
