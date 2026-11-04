@@ -8,7 +8,10 @@ import {
   buildFlowTriggerPayload,
   triggerLinkSubmissionFlow,
   countSuccessfulSubmissionsBefore,
+  detectPlatform,
+  checkTikTokHandleOwnership,
 } from "../lib/tiktok-submission.server";
+import { getShopSettings } from "../lib/shop-settings.server";
 
 // ── Action: processes one batch of entries ────────────────────────────────────
 
@@ -20,6 +23,34 @@ function jsonResp(data, status = 200) {
 }
 
 const BATCH_SIZE = 10;
+
+// A row that never got its metafield was never accepted, so it has to clear
+// the same bar as a new submission before a retry may accept it and fire the
+// Flow. Returns the reason to keep it unaccepted, or null to go ahead.
+async function getRetryRejection(entry, order) {
+  const alreadyAccepted = await db.tikTokUrl.findFirst({
+    where: {
+      id: { not: entry.id },
+      metafieldUpdated: true,
+      ...(entry.videoId ? { videoId: entry.videoId } : { url: entry.url }),
+    },
+  });
+  if (alreadyAccepted) return "Not retried: link already accepted";
+
+  if (detectPlatform(entry.url) !== "tiktok") return null;
+
+  // Rows saved before unverifiable TikTok links started being rejected
+  if (!entry.videoId) return "Not retried: TikTok link could not be verified";
+
+  const shopSettings = await getShopSettings(entry.shop);
+  if (!shopSettings.requireRegisteredTiktokHandle) return null;
+
+  const rejection = await checkTikTokHandleOwnership({
+    order,
+    creatorHandle: entry.creatorHandle,
+  });
+  return rejection ? `Not retried: ${rejection.error}` : null;
+}
 
 export async function action({ request }) {
   if (request.method !== "POST") return jsonResp({ ok: false }, 405);
@@ -68,7 +99,13 @@ export async function action({ request }) {
       // Backfill order name if it was missing (e.g. submitted from orders list page)
       const orderName = entry.orderName || order.name || null;
 
-      if (!metafieldUpdated) {
+      const retryRejection = metafieldUpdated
+        ? null
+        : await getRetryRejection(entry, order);
+
+      if (retryRejection) {
+        metafieldError = retryRejection;
+      } else if (!metafieldUpdated) {
         try {
           await updateOrderMetafields(order, admin, {
             url: entry.url,
@@ -111,7 +148,7 @@ export async function action({ request }) {
         }
       }
 
-      if (!noteUpdated) {
+      if (metafieldUpdated && !noteUpdated) {
         try {
           await updateOrderNote(order, admin, savedAtGmt7);
           noteUpdated = true;

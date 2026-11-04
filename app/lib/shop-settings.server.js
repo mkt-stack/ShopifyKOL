@@ -5,6 +5,7 @@ export const DEFAULT_SHOP_SETTINGS = {
   dailyLimit: 20,
   tiktokEnabled: true,
   shopeeEnabled: true,
+  requireRegisteredTiktokHandle: false,
 };
 
 // Shops without a row yet behave exactly like the defaults above — the row

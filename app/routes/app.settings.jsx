@@ -16,6 +16,8 @@ export async function action({ request }) {
   const dailyLimitEnabled = formData.get("dailyLimitEnabled") === "on";
   const tiktokEnabled = formData.get("tiktokEnabled") === "on";
   const shopeeEnabled = formData.get("shopeeEnabled") === "on";
+  const requireRegisteredTiktokHandle =
+    formData.get("requireRegisteredTiktokHandle") === "on";
   const rawDailyLimit = formData.get("dailyLimit");
   const updatedBy = String(formData.get("updatedBy") || "").trim();
 
@@ -39,6 +41,7 @@ export async function action({ request }) {
     dailyLimit,
     tiktokEnabled,
     shopeeEnabled,
+    requireRegisteredTiktokHandle,
     updatedBy,
   });
 
@@ -122,6 +125,8 @@ export default function SettingsPage() {
   const [dailyLimit, setDailyLimit] = useState(String(settings.dailyLimit));
   const [tiktokEnabled, setTiktokEnabled] = useState(settings.tiktokEnabled);
   const [shopeeEnabled, setShopeeEnabled] = useState(settings.shopeeEnabled);
+  const [requireRegisteredTiktokHandle, setRequireRegisteredTiktokHandle] =
+    useState(settings.requireRegisteredTiktokHandle);
   const [updatedBy, setUpdatedBy] = useState("");
 
   const submitting = fetcher.state !== "idle";
@@ -133,6 +138,9 @@ export default function SettingsPage() {
       setDailyLimit(String(result.settings.dailyLimit));
       setTiktokEnabled(result.settings.tiktokEnabled);
       setShopeeEnabled(result.settings.shopeeEnabled);
+      setRequireRegisteredTiktokHandle(
+        result.settings.requireRegisteredTiktokHandle,
+      );
     }
   }, [result]);
 
@@ -144,6 +152,7 @@ export default function SettingsPage() {
         dailyLimit,
         tiktokEnabled: tiktokEnabled ? "on" : "",
         shopeeEnabled: shopeeEnabled ? "on" : "",
+        requireRegisteredTiktokHandle: requireRegisteredTiktokHandle ? "on" : "",
         updatedBy,
       },
       { method: "post" },
@@ -224,6 +233,32 @@ export default function SettingsPage() {
             description="shopee.co.th, *.shopee.co.th, shp.ee, *.shp.ee"
             checked={shopeeEnabled}
             onChange={setShopeeEnabled}
+          />
+        </div>
+
+        <div
+          style={{
+            background: "white",
+            border: "1px solid #E5E7EB",
+            borderRadius: 12,
+            padding: 20,
+            marginBottom: 16,
+          }}
+        >
+          <h3 style={{ margin: "0 0 4px", fontSize: 15 }}>
+            ตรวจสอบบัญชีเจ้าของวิดีโอ
+          </h3>
+          <p style={{ margin: "0 0 8px", fontSize: 13, color: "#6B7280" }}>
+            ตรวจว่าวิดีโอ TikTok มาจากบัญชีที่ลูกค้าลงทะเบียนไว้ในระบบ ARM
+            (ไม่มีผลกับลิงก์ Shopee)
+          </p>
+
+          <ToggleRow
+            name="requireRegisteredTiktokHandle"
+            title="รับเฉพาะวิดีโอจากบัญชี TikTok ที่ลงทะเบียนแล้ว"
+            description="เมื่อเปิด ลิงก์ที่ตรวจสอบบัญชีไม่ได้จะถูกปฏิเสธด้วย เช่น ลูกค้าที่ยังไม่ลงทะเบียน หรือช่วงที่ระบบ ARM ขัดข้อง"
+            checked={requireRegisteredTiktokHandle}
+            onChange={setRequireRegisteredTiktokHandle}
           />
         </div>
 

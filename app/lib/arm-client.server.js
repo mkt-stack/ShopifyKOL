@@ -1,4 +1,5 @@
 const DEFAULT_BASE_URL = "https://white-band-9893.tantus-c.workers.dev";
+const ARM_TIMEOUT_MS = 8000;
 
 function getBaseUrl() {
   return process.env.ARM_BASE_URL || DEFAULT_BASE_URL;
@@ -23,6 +24,7 @@ async function armPost(path, body) {
         "X-Admin-Token": token,
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(ARM_TIMEOUT_MS),
     });
 
     const json = await res.json().catch(() => null);
@@ -60,6 +62,50 @@ export async function fetchArmProfile({ lineUid, email }) {
   }
 
   return null;
+}
+
+// Same lookup order as fetchArmProfile, for callers that block on the result
+// and so must tell "not registered" (ARM's 404) apart from "couldn't ask ARM".
+// Returns { status: "found", profile }, { status: "not_found" }, or
+// { status: "unavailable" } if any lookup failed without finding a profile.
+export async function lookupArmProfile({ lineUid, email }) {
+  const identifiers = [
+    ["line_uid", lineUid],
+    ["email", email],
+  ].filter(([, value]) => value);
+
+  let unavailable = false;
+
+  for (const [identifierType, identifierValue] of identifiers) {
+    const r = await armPost("/fetch-profile", {
+      identifier_type: identifierType,
+      identifier_value: identifierValue,
+    });
+    if (r.ok) return { status: "found", profile: r.json };
+    if (r.status !== 404) unavailable = true;
+  }
+
+  return { status: unavailable ? "unavailable" : "not_found" };
+}
+
+// ARM stores handles lowercased and bare, but older records may still hold
+// the "@handle" or profile-URL form they were originally submitted in.
+function normalizeTikTokHandle(value) {
+  return String(value || "")
+    .trim()
+    .replace(/^(?:https?:\/\/)?(?:www\.)?tiktok\.com\//i, "")
+    .replace(/^@/, "")
+    .split(/[/?#]/)[0]
+    .toLowerCase();
+}
+
+export function hasRegisteredTikTokHandle(armProfile, handle) {
+  const target = normalizeTikTokHandle(handle);
+  if (!target) return false;
+
+  return (armProfile?.handles?.tiktok?.data || []).some(
+    (entry) => normalizeTikTokHandle(entry?.value) === target,
+  );
 }
 
 // ARM's profile blob stores each platform's handles as an array — a person

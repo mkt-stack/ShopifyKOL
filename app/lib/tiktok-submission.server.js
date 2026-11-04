@@ -1,5 +1,6 @@
 import { unauthenticated } from "../shopify.server";
 import db from "../db.server";
+import { lookupArmProfile, hasRegisteredTikTokHandle } from "./arm-client.server";
 
 const FLOW_TRIGGER_HANDLE = "video-link-submitted";
 
@@ -92,6 +93,53 @@ export function detectPlatform(url) {
   return "other";
 }
 
+// Returns null if the order's customer owns creatorHandle, otherwise
+// { status, error } ready for the API response. Blocks when ownership can't
+// be confirmed, since letting those through would make the requirement
+// optional. A pasted full link's handle is taken at face value: TikTok serves
+// a video at /@anything/video/<id>, so it could be edited by hand, an accepted
+// risk.
+export async function checkTikTokHandleOwnership({ order, creatorHandle }) {
+  // Links like tiktok.com/v/123 carry a video ID but no handle
+  if (!creatorHandle) {
+    return {
+      status: 422,
+      error:
+        "ไม่สามารถตรวจสอบบัญชีเจ้าของวิดีโอจากลิงก์นี้ได้ กรุณาวางลิงก์วิดีโอแบบเต็ม (tiktok.com/@ชื่อ/video/...) หรือลิงก์จากปุ่มแชร์ในแอป TikTok",
+    };
+  }
+
+  const armLookup = await lookupArmProfile({
+    lineUid: order.customer?.lineUid?.value,
+    email: order.customer?.email || order.email,
+  });
+
+  if (armLookup.status === "unavailable") {
+    return {
+      status: 503,
+      error:
+        "ไม่สามารถตรวจสอบบัญชี TikTok ของคุณได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง หรือติดต่อแอดมิน",
+    };
+  }
+
+  if (armLookup.status === "not_found") {
+    return {
+      status: 403,
+      error:
+        "ไม่พบบัญชีของคุณในระบบ กรุณาลงทะเบียนบัญชี TikTok ก่อนส่งลิงก์ หรือติดต่อแอดมิน",
+    };
+  }
+
+  if (!hasRegisteredTikTokHandle(armLookup.profile, creatorHandle)) {
+    return {
+      status: 403,
+      error: `วิดีโอนี้มาจากบัญชี @${creatorHandle} ซึ่งไม่ได้ลงทะเบียนไว้กับคุณ กรุณาส่งวิดีโอจากบัญชีที่ลงทะเบียนเท่านั้น หรือเพิ่มบัญชีนี้ในหน้าโปรไฟล์ของคุณ`,
+    };
+  }
+
+  return null;
+}
+
 export async function getAdminClient(shop) {
   const auth = await unauthenticated.admin(shop);
 
@@ -120,6 +168,9 @@ export async function getOrderData(admin, orderId) {
           displayName
           firstName
           lastName
+          lineUid: metafield(namespace: "custom", key: "line_uid") {
+            value
+          }
         }
         lineItems(first: 25) {
           nodes {

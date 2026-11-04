@@ -8,6 +8,7 @@ import {
   buildFlowTriggerPayload,
   triggerLinkSubmissionFlow,
   getBangkokDayBoundsUtc,
+  checkTikTokHandleOwnership,
 } from "../lib/tiktok-submission.server";
 import { getShopSettings } from "../lib/shop-settings.server";
 
@@ -367,17 +368,17 @@ async function handleRequest(request) {
       // checkout contact email, or its linked Shopify customer) rather than
       // trusting the client, since that's always present for a completed
       // order even for guest checkouts.
-      let dailyLimitAdmin = null;
-      let dailyLimitOrder = null;
+      let orderAdmin = null;
+      let orderData = null;
 
       if (shopSettings.dailyLimitEnabled) {
         let dailyLimitEmail = null;
         try {
-          dailyLimitAdmin = await getAdminClient(shop);
-          dailyLimitOrder = await getOrderData(dailyLimitAdmin, orderId);
+          orderAdmin = await getAdminClient(shop);
+          orderData = await getOrderData(orderAdmin, orderId);
           dailyLimitEmail =
-            dailyLimitOrder?.email ||
-            dailyLimitOrder?.customer?.email ||
+            orderData?.email ||
+            orderData?.customer?.email ||
             customerEmail ||
             null;
         } catch (error) {
@@ -413,6 +414,36 @@ async function handleRequest(request) {
               error: `คุณส่งลิงก์ครบโควต้ารายวัน (${shopSettings.dailyLimit} ลิงก์) แล้ว กรุณาลองใหม่ในวันถัดไป`,
             },
             { status: 429 },
+          );
+        }
+      }
+
+      // Only accept TikTok videos posted from a handle the order's customer
+      // has registered in ARM (admin-configurable, off by default). Identity
+      // comes from the order, same as the daily limit above, never from the
+      // client.
+      if (platform === "tiktok" && shopSettings.requireRegisteredTiktokHandle) {
+        let rejection = null;
+        try {
+          orderAdmin = orderAdmin || (await getAdminClient(shop));
+          orderData = orderData || (await getOrderData(orderAdmin, orderId));
+          rejection = await checkTikTokHandleOwnership({
+            order: orderData,
+            creatorHandle,
+          });
+        } catch (error) {
+          console.error("Handle check: order lookup failed:", error);
+          rejection = {
+            status: 503,
+            error:
+              "ไม่สามารถตรวจสอบบัญชี TikTok ของคุณได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง หรือติดต่อแอดมิน",
+          };
+        }
+
+        if (rejection) {
+          return jsonResponse(
+            { ok: false, error: rejection.error },
+            { status: rejection.status },
           );
         }
       }
@@ -468,10 +499,10 @@ async function handleRequest(request) {
       let resolvedCustomerEmail = customerEmail;
 
       try {
-        // Reuse the order lookup the daily-limit check already did this
+        // Reuse the order lookup an earlier check already did this
         // request, if any, instead of fetching it twice.
-        const admin = dailyLimitAdmin || (await getAdminClient(shop));
-        const order = dailyLimitOrder || (await getOrderData(admin, orderId));
+        const admin = orderAdmin || (await getAdminClient(shop));
+        const order = orderData || (await getOrderData(admin, orderId));
 
         // Backfill orderName from Shopify if not provided by the client
         if (!resolvedOrderName && order.name) {
@@ -542,12 +573,14 @@ async function handleRequest(request) {
           }
         }
 
-        try {
-          await updateOrderNote(order, admin, savedAtGmt7);
-          noteUpdated = true;
-        } catch (error) {
-          console.error("Note update failed:", error);
-          noteError = String(error);
+        if (metafieldUpdated) {
+          try {
+            await updateOrderNote(order, admin, savedAtGmt7);
+            noteUpdated = true;
+          } catch (error) {
+            console.error("Note update failed:", error);
+            noteError = String(error);
+          }
         }
       } catch (error) {
         console.error("Order/admin lookup failed:", error);
@@ -584,6 +617,15 @@ async function handleRequest(request) {
         flowTriggered,
         flowTriggerError,
       });
+
+      // The metafield is what makes a submission count (everything else
+      // filters on metafieldUpdated), so without it the link wasn't accepted.
+      if (!metafieldUpdated) {
+        return jsonResponse(
+          { ok: false, error: "บันทึกลิงก์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" },
+          { status: 502 },
+        );
+      }
 
       const links = await db.tikTokUrl.findMany({
         where: {
