@@ -1,0 +1,19 @@
+api_version = "2026-01"
+
+[[extensions]]
+name = "Weekly order limit"
+handle = "weekly-order-limit-widget"
+uid = "3e722bd2-4e88-a916-b21c-009e18a2ad2cc333a690"
+type = "ui_extension"
+
+# Block target: place it in the checkout editor (e.g. at the top of the
+# Information step, above the contact email). Shows the orders left this
+# week, a red "limit reached" banner with the reopening date, or a log-in
+# prompt. The text comes from the app's Weekly Order Limit page.
+[[extensions.targeting]]
+target = "purchase.checkout.block.render"
+module = "./src/WeeklyLimitBlock.jsx"
+
+# Calls the app (/api/weekly-limit) for the customer's status.
+[extensions.capabilities]
+network_access = true

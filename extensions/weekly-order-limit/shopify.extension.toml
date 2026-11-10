@@ -1,0 +1,20 @@
+api_version = "2026-07"
+
+[[extensions]]
+name = "t:name"
+handle = "weekly-order-limit"
+uid = "00b2f80f-2422-3ef8-7b52-20485b1df18877a37ca0"
+type = "function"
+description = "t:description"
+
+  [[extensions.targeting]]
+  target = "cart.validations.generate.run"
+  input_query = "src/cart_validations_generate_run.graphql"
+  # $tags (exempt + override tags) comes from the validation's `$app:config`
+  # metafield, which the app writes on every save (app/lib/weekly-limit.server.js).
+  input_variables = { namespace = "$app", key = "config" }
+  export = "cart-validations-generate-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"

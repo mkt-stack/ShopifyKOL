@@ -1,0 +1,4 @@
+{
+  "name": "Weekly order limit",
+  "description": "Blocks checkout once a customer has placed their weekly number of paid orders, and requires login."
+}

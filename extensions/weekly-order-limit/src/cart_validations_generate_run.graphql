@@ -1,0 +1,36 @@
+# $tags: exempt + override tags, from the validation's `$app:config` metafield
+# (input_variables in shopify.extension.toml).
+query CartValidationsGenerateRunInput($tags: [String!]) {
+  buyerJourney {
+    step
+  }
+  localization {
+    language {
+      isoCode
+    }
+  }
+  shop {
+    localTime {
+      date
+    }
+  }
+  validation {
+    config: metafield(namespace: "$app", key: "config") {
+      jsonValue
+    }
+  }
+  cart {
+    buyerIdentity {
+      customer {
+        id
+        tags: hasTags(tags: $tags) {
+          tag
+          hasTag
+        }
+        weekly: metafield(namespace: "$app", key: "weekly_orders") {
+          jsonValue
+        }
+      }
+    }
+  }
+}

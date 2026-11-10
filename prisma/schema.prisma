@@ -90,3 +90,25 @@ model ShopSettings {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
+
+// Weekly order limit (checkout validation + checkout widget). The app keeps
+// this row as the source of truth and copies it to the validation's
+// `$app:config` metafield on every save, because the Function can't reach
+// the app at checkout. See app/lib/weekly-limit.server.js.
+model WeeklyOrderLimitSettings {
+  id            String   @id @default(cuid())
+  shop          String   @unique
+  enabled       Boolean  @default(false)
+  defaultLimit  Int      @default(3)
+  exemptTags    Json     @default("[]")
+  // [{ "tag": "VIP", "limit": 10 }] — the highest limit among a customer's tags wins.
+  overrides     Json     @default("[]")
+  // { "th": { ok, fullTitle, full, login }, "en": { ... } } — blank keys fall back to defaults.
+  messages      Json     @default("{}")
+  validationId  String?
+  lastSyncedAt  DateTime?
+  lastSyncError String?
+  updatedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

@@ -1,0 +1,103 @@
+{
+  "payload": {
+    "export": "cart-validations-generate-run",
+    "target": "cart.validations.generate.run",
+    "input": {
+      "buyerJourney": {
+        "step": "CHECKOUT_COMPLETION"
+      },
+      "localization": {
+        "language": {
+          "isoCode": "EN"
+        }
+      },
+      "shop": {
+        "localTime": {
+          "date": "2026-11-11"
+        }
+      },
+      "validation": {
+        "config": {
+          "jsonValue": {
+            "enabled": true,
+            "limit": 3,
+            "tags": [
+              "STAFF",
+              "VIP",
+              "KOL"
+            ],
+            "exemptTags": [
+              "STAFF"
+            ],
+            "overrides": [
+              {
+                "tag": "VIP",
+                "limit": 10
+              },
+              {
+                "tag": "KOL",
+                "limit": 6
+              }
+            ],
+            "messages": {
+              "th": {
+                "ok": "ok",
+                "fullTitle": "t",
+                "full": "ครบ {{limit}} ออเดอร์แล้ว สั่งได้อีกครั้งวันจันทร์ที่ {{date}}",
+                "login": "กรุณาเข้าสู่ระบบก่อนทำการสั่งซื้อ"
+              },
+              "en": {
+                "ok": "ok",
+                "fullTitle": "t",
+                "full": "Limit {{limit}} reached. Order again on Monday, {{date}}.",
+                "login": "Please log in to place your order."
+              }
+            }
+          }
+        }
+      },
+      "cart": {
+        "buyerIdentity": {
+          "customer": {
+            "id": "gid://shopify/Customer/1",
+            "tags": [
+              {
+                "tag": "STAFF",
+                "hasTag": false
+              },
+              {
+                "tag": "VIP",
+                "hasTag": false
+              },
+              {
+                "tag": "KOL",
+                "hasTag": true
+              }
+            ],
+            "weekly": {
+              "jsonValue": {
+                "week": "2026-11-09",
+                "count": 6,
+                "orders": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "validationAdd": {
+            "errors": [
+              {
+                "message": "Limit 6 reached. Order again on Monday, 16 Nov 2026.",
+                "target": "$.cart"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
