@@ -1,4 +1,4 @@
-const DEFAULT_BASE_URL = "https://white-band-9893.tantus-c.workers.dev";
+const DEFAULT_BASE_URL = "https://arm-worker-v2.tantus-c.workers.dev";
 const ARM_TIMEOUT_MS = 8000;
 
 function getBaseUrl() {
